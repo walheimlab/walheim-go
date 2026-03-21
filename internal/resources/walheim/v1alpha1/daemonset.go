@@ -544,7 +544,7 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 		localDir := filepath.Join(d.DataDir, "daemonsets", name, ns)
 		remoteDir := nsMeta.Spec.remoteBaseDir() + "/daemonsets/" + name
 
-		if err := rsync.NewSyncer().Sync(localDir, target, remoteDir); err != nil {
+		if err := rsync.NewSyncer().Sync(d.FS, localDir, target, remoteDir); err != nil {
 			return exitErr(exitcode.Failure, fmt.Errorf("rsync to %q: %w", ns, err))
 		}
 

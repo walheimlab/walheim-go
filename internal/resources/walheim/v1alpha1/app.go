@@ -503,7 +503,7 @@ func (a *App) runStart(opts registry.OperationOpts) error {
 	localDir := a.ResourceDir(namespace, name)
 	remoteDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
 
-	if err := rsync.NewSyncer().Sync(localDir, target, remoteDir); err != nil {
+	if err := rsync.NewSyncer().Sync(a.FS, localDir, target, remoteDir); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("rsync: %w", err))
 	}
 
