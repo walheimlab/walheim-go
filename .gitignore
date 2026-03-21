@@ -1,5 +1,8 @@
 # Binary
-whctl
+/whctl
+
+# Local dev data directory (not committed)
+dev/
 
 # Agent plans
 plans/

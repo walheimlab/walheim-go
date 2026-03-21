@@ -55,6 +55,47 @@ type Config struct {
 	path           string    // unexported: resolved config file path
 }
 
+// Init creates a fresh empty config file at the resolved path.
+// The parent directory must exist. If the file already exists, it is overwritten.
+// Returns the initialised (empty) Config ready for AddContext.
+func Init(configPath string) (*Config, error) {
+	var resolvedPath string
+	if configPath != "" {
+		resolvedPath = expandHome(configPath)
+	} else if envPath := os.Getenv(EnvVar); envPath != "" {
+		resolvedPath = expandHome(envPath)
+	} else {
+		resolvedPath = expandHome(DefaultConfigPath)
+	}
+
+	// Ensure parent directory exists
+	if err := os.MkdirAll(filepath.Dir(resolvedPath), 0755); err != nil {
+		return nil, &ConfigError{
+			message: fmt.Sprintf("failed to create config directory: %v", err),
+		}
+	}
+
+	cfg := &Config{
+		APIVersion: APIVersion,
+		Kind:       Kind,
+		Contexts:   []Context{},
+		path:       resolvedPath,
+	}
+
+	// Write the skeleton file
+	data, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, &ConfigError{message: fmt.Sprintf("failed to marshal config: %v", err)}
+	}
+	if err := os.WriteFile(resolvedPath, data, 0600); err != nil {
+		return nil, &ConfigError{
+			message: fmt.Sprintf("failed to write config file %q: %v", resolvedPath, err),
+		}
+	}
+
+	return cfg, nil
+}
+
 // Load reads config from the resolved path.
 // Resolution order: explicit path arg > $WHCONFIG > ~/.walheim/config
 func Load(configPath string) (*Config, error) {
