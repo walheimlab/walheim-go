@@ -17,6 +17,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/resource"
+	"github.com/walheimlab/walheim-go/internal/rsync"
 	"github.com/walheimlab/walheim-go/internal/ssh"
 )
 
@@ -235,9 +236,42 @@ func resolveJobEnv(ns string, spec JobSpec, filesystem fs.FS, dataDir string) (m
 	return env, nil
 }
 
+// writeMountsLocally writes mount files under <localResourceDir>/mounts/ for
+// all mount entries in spec. Called before rsyncing the job directory.
+func writeMountsLocally(localResourceDir string, mounts []MountEntry, namespace string, filesystem fs.FS, dataDir string) error {
+	for _, entry := range mounts {
+		var kvMap map[string]string
+		var sourceType, sourceName string
+		var err error
+
+		if entry.SecretRef != nil {
+			kvMap, err = loadSecret(namespace, entry.SecretRef.Name, filesystem, dataDir)
+			if err != nil {
+				return fmt.Errorf("mounts: %w", err)
+			}
+			sourceType, sourceName = "secrets", entry.SecretRef.Name
+		} else if entry.ConfigMapRef != nil {
+			kvMap, err = loadConfigMap(namespace, entry.ConfigMapRef.Name, filesystem, dataDir)
+			if err != nil {
+				return fmt.Errorf("mounts: %w", err)
+			}
+			sourceType, sourceName = "configmaps", entry.ConfigMapRef.Name
+		} else {
+			continue
+		}
+
+		if err := writeMountFiles(localResourceDir, sourceType, sourceName, kvMap, filesystem); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // buildDockerRunCmd constructs the full docker run shell command string.
+// remoteResourceDir is the absolute path on the remote host where the job
+// directory was rsynced; used to build -v args for mounts. Empty means no mounts.
 // When detach is true, adds -d so the command returns the container ID immediately.
-func buildDockerRunCmd(ns, name string, spec JobSpec, detach bool, filesystem fs.FS, dataDir string) (string, error) {
+func buildDockerRunCmd(ns, name string, spec JobSpec, detach bool, remoteResourceDir string, filesystem fs.FS, dataDir string) (string, error) {
 	env, err := resolveJobEnv(ns, spec, filesystem, dataDir)
 	if err != nil {
 		return "", err
@@ -264,6 +298,22 @@ func buildDockerRunCmd(ns, name string, spec JobSpec, detach bool, filesystem fs
 	sort.Strings(keys)
 	for _, k := range keys {
 		parts = append(parts, "-e", shellQuote(k+"="+env[k]))
+	}
+
+	// Append -v args for each mount entry (all entries apply; serviceNames is ignored for Job).
+	if remoteResourceDir != "" {
+		for _, entry := range spec.Mounts {
+			var sourceType, sourceName string
+			if entry.SecretRef != nil {
+				sourceType, sourceName = "secrets", entry.SecretRef.Name
+			} else if entry.ConfigMapRef != nil {
+				sourceType, sourceName = "configmaps", entry.ConfigMapRef.Name
+			} else {
+				continue
+			}
+			remoteMountDir := remoteResourceDir + "/mounts/" + sourceType + "/" + sourceName
+			parts = append(parts, "-v", shellQuote(remoteMountDir+":"+entry.MountPath+":ro"))
+		}
 	}
 
 	parts = append(parts, shellQuote(spec.Image))
@@ -470,19 +520,36 @@ func (j *Job) runRun(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
+	target := nsMeta.Spec.sshTarget()
+	remoteResourceDir := ""
+
+	// If there are mounts, write files locally and rsync the job dir to remote.
+	if len(m.Spec.Mounts) > 0 {
+		localResourceDir := j.ResourceDir(namespace, name)
+		if err := writeMountsLocally(localResourceDir, m.Spec.Mounts, namespace, j.FS, j.DataDir); err != nil {
+			return exitErr(exitcode.Failure, err)
+		}
+		remoteResourceDir = nsMeta.Spec.remoteBaseDir() + "/jobs/" + name
+		if !opts.DryRun {
+			if err := rsync.NewSyncer().Sync(localResourceDir, target, remoteResourceDir); err != nil {
+				return exitErr(exitcode.Failure, fmt.Errorf("rsync mounts: %w", err))
+			}
+		}
+	}
+
 	detach := opts.Bool("detach")
 
-	cmd, err := buildDockerRunCmd(namespace, name, m.Spec, detach, j.FS, j.DataDir)
+	cmd, err := buildDockerRunCmd(namespace, name, m.Spec, detach, remoteResourceDir, j.FS, j.DataDir)
 	if err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("build docker run: %w", err))
 	}
 
 	if opts.DryRun {
-		fmt.Printf("Would run on %s: %s\n", nsMeta.Spec.sshTarget(), cmd)
+		fmt.Printf("Would run on %s: %s\n", target, cmd)
 		return nil
 	}
 
-	sshClient := ssh.NewClient(nsMeta.Spec.sshTarget())
+	sshClient := ssh.NewClient(target)
 	if err := sshClient.Run(cmd); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("job %q failed: %w", name, err))
 	}

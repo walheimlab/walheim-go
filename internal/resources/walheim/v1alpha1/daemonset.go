@@ -344,15 +344,21 @@ func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, fi
 
 	m.Spec.Compose.Services = services
 
+	resourceDir := filepath.Join(dataDir, "daemonsets", dsName, namespace)
+	if err := filesystem.MkdirAll(resourceDir); err != nil {
+		return fmt.Errorf("create compose dir: %w", err)
+	}
+
+	if err := injectComposeMounts(resourceDir, services, m.Spec.Mounts, namespace, filesystem, dataDir); err != nil {
+		return err
+	}
+
 	encoded, err := yaml.Marshal(m.Spec.Compose)
 	if err != nil {
 		return fmt.Errorf("marshal docker-compose: %w", err)
 	}
 
-	composePath := filepath.Join(dataDir, "daemonsets", dsName, namespace, "docker-compose.yml")
-	if err := filesystem.MkdirAll(filepath.Dir(composePath)); err != nil {
-		return fmt.Errorf("create compose dir: %w", err)
-	}
+	composePath := filepath.Join(resourceDir, "docker-compose.yml")
 	if err := filesystem.WriteFile(composePath, encoded); err != nil {
 		return fmt.Errorf("write docker-compose.yml: %w", err)
 	}

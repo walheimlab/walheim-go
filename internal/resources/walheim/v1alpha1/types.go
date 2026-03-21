@@ -88,6 +88,7 @@ type AppSpec struct {
 	Compose  ComposeSpec    `yaml:"compose"`
 	EnvFrom  []EnvFromEntry `yaml:"envFrom,omitempty"`
 	Env      []EnvEntry     `yaml:"env,omitempty"`
+	Mounts   []MountEntry   `yaml:"mounts,omitempty"`
 }
 
 // ComposeSpec is the raw docker-compose document.
@@ -186,6 +187,17 @@ func (l ServiceLabels) MarshalYAML() (interface{}, error) {
 	return l.Values, nil
 }
 
+// MountEntry mounts all keys from a Secret or ConfigMap as individual files
+// into a directory inside the container.
+type MountEntry struct {
+	SecretRef    *NamedRef `yaml:"secretRef,omitempty"`
+	ConfigMapRef *NamedRef `yaml:"configMapRef,omitempty"`
+	// MountPath is the directory inside the container where each key becomes a file.
+	MountPath string `yaml:"mountPath"`
+	// ServiceNames restricts mounting to named services. Empty means all services.
+	ServiceNames []string `yaml:"serviceNames,omitempty"`
+}
+
 // EnvFromEntry injects all keys from a Secret or ConfigMap into services.
 type EnvFromEntry struct {
 	SecretRef    *NamedRef `yaml:"secretRef,omitempty"`
@@ -227,6 +239,7 @@ type DaemonSetSpec struct {
 	Compose           ComposeSpec    `yaml:"compose"`
 	EnvFrom           []EnvFromEntry `yaml:"envFrom,omitempty"`
 	Env               []EnvEntry     `yaml:"env,omitempty"`
+	Mounts            []MountEntry   `yaml:"mounts,omitempty"`
 }
 
 // LabelSelector selects resources by matching labels.
@@ -268,6 +281,7 @@ type JobSpec struct {
 	Command []string       `yaml:"command,omitempty"`
 	EnvFrom []EnvFromEntry `yaml:"envFrom,omitempty"`
 	Env     []EnvEntry     `yaml:"env,omitempty"`
+	Mounts  []MountEntry   `yaml:"mounts,omitempty"`
 }
 
 // ── Secret & ConfigMap (on-disk manifest structs) ─────────────────────────────

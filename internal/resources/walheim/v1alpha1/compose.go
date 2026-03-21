@@ -149,15 +149,84 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 	// Write back modified services
 	m.Spec.Compose.Services = services
 
-	// Step 5 — Marshal and write.
+	// Step 5 — Write mount files and inject bind-mount volumes.
+	resourceDir := filepath.Join(dataDir, "namespaces", namespace, "apps", name)
+	if err := injectComposeMounts(resourceDir, services, m.Spec.Mounts, namespace, filesystem, dataDir); err != nil {
+		return err
+	}
+
+	// Step 6 — Marshal and write.
 	encoded, err := yaml.Marshal(m.Spec.Compose)
 	if err != nil {
 		return fmt.Errorf("marshal docker-compose: %w", err)
 	}
 
-	composePath := filepath.Join(dataDir, "namespaces", namespace, "apps", name, "docker-compose.yml")
+	composePath := filepath.Join(resourceDir, "docker-compose.yml")
 	if err := filesystem.WriteFile(composePath, encoded); err != nil {
 		return fmt.Errorf("write docker-compose.yml: %w", err)
+	}
+	return nil
+}
+
+// ── Mount helpers ─────────────────────────────────────────────────────────────
+
+// writeMountFiles writes each key in kvMap as a file under
+// <resourceDir>/mounts/<sourceType>/<sourceName>/.
+// sourceType is "configmaps" or "secrets".
+func writeMountFiles(resourceDir, sourceType, sourceName string, kvMap map[string]string, filesystem fs.FS) error {
+	dir := filepath.Join(resourceDir, "mounts", sourceType, sourceName)
+	if err := filesystem.MkdirAll(dir); err != nil {
+		return fmt.Errorf("create mount dir for %s/%s: %w", sourceType, sourceName, err)
+	}
+	for key, value := range kvMap {
+		if err := filesystem.WriteFile(filepath.Join(dir, key), []byte(value)); err != nil {
+			return fmt.Errorf("write mount file %q: %w", key, err)
+		}
+	}
+	return nil
+}
+
+// injectComposeMounts writes mount files and appends bind-mount volume entries
+// into the target services. Volume paths are relative to the compose file
+// location (i.e. resourceDir is the directory that contains docker-compose.yml).
+func injectComposeMounts(resourceDir string, services map[string]ComposeService, mounts []MountEntry, namespace string, filesystem fs.FS, dataDir string) error {
+	for _, entry := range mounts {
+		var kvMap map[string]string
+		var sourceType, sourceName string
+		var err error
+
+		if entry.SecretRef != nil {
+			kvMap, err = loadSecret(namespace, entry.SecretRef.Name, filesystem, dataDir)
+			if err != nil {
+				return fmt.Errorf("mounts: %w", err)
+			}
+			sourceType, sourceName = "secrets", entry.SecretRef.Name
+		} else if entry.ConfigMapRef != nil {
+			kvMap, err = loadConfigMap(namespace, entry.ConfigMapRef.Name, filesystem, dataDir)
+			if err != nil {
+				return fmt.Errorf("mounts: %w", err)
+			}
+			sourceType, sourceName = "configmaps", entry.ConfigMapRef.Name
+		} else {
+			continue
+		}
+
+		if err := writeMountFiles(resourceDir, sourceType, sourceName, kvMap, filesystem); err != nil {
+			return err
+		}
+
+		// Relative volume string: ./mounts/<type>/<name>:/container/path:ro
+		volumeStr := fmt.Sprintf("./mounts/%s/%s:%s:ro", sourceType, sourceName, entry.MountPath)
+
+		for _, svcName := range targetServices(services, entry.ServiceNames) {
+			svc := services[svcName]
+			if svc.Extra == nil {
+				svc.Extra = make(map[string]any)
+			}
+			existing, _ := svc.Extra["volumes"].([]any)
+			svc.Extra["volumes"] = append(existing, volumeStr)
+			services[svcName] = svc
+		}
 	}
 	return nil
 }
