@@ -7,4 +7,5 @@ func Register() {
 	registerApp()
 	registerSecret()
 	registerConfigMap()
+	registerDaemonSet()
 }

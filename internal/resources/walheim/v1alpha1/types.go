@@ -209,6 +209,46 @@ type EnvEntry struct {
 	ServiceNames []string `yaml:"serviceNames,omitempty"`
 }
 
+// ── DaemonSet ─────────────────────────────────────────────────────────────────
+
+// DaemonSetManifest is the typed representation of a .daemonset.yaml file.
+type DaemonSetManifest struct {
+	APIVersion string           `yaml:"apiVersion"`
+	Kind       string           `yaml:"kind"`
+	Metadata   ResourceMetadata `yaml:"metadata"`
+	Spec       DaemonSetSpec    `yaml:"spec"`
+}
+
+// DaemonSetSpec holds the DaemonSet-specific fields.
+type DaemonSetSpec struct {
+	// NamespaceSelector selects which namespaces the DaemonSet runs in by
+	// matching labels. A nil or empty selector matches all namespaces.
+	NamespaceSelector *LabelSelector `yaml:"namespaceSelector,omitempty"`
+	Compose           ComposeSpec    `yaml:"compose"`
+	EnvFrom           []EnvFromEntry `yaml:"envFrom,omitempty"`
+	Env               []EnvEntry     `yaml:"env,omitempty"`
+}
+
+// LabelSelector selects resources by matching labels.
+// All entries in MatchLabels must be present on the target resource.
+type LabelSelector struct {
+	MatchLabels map[string]string `yaml:"matchLabels,omitempty"`
+}
+
+// Matches reports whether the given labels satisfy this selector.
+// A nil or empty selector matches everything.
+func (s *LabelSelector) Matches(labels map[string]string) bool {
+	if s == nil || len(s.MatchLabels) == 0 {
+		return true
+	}
+	for k, v := range s.MatchLabels {
+		if labels[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
 // ── Secret & ConfigMap (on-disk manifest structs) ─────────────────────────────
 
 // SecretManifest is the typed representation of a .secret.yaml file.
