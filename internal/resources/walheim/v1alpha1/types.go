@@ -28,6 +28,23 @@ type NamespaceManifest struct {
 type NamespaceSpec struct {
 	Hostname string `yaml:"hostname"`
 	Username string `yaml:"username,omitempty"`
+	// BaseDir is the root directory on the remote host where Walheim stores its
+	// data. Defaults to /data/walheim when empty. Changing this after initial
+	// deployment requires manually migrating remote files.
+	BaseDir string `yaml:"baseDir,omitempty"`
+}
+
+// DefaultRemoteBaseDir is the remote base directory used when spec.baseDir is
+// not set. It matches the Ruby implementation's hardcoded path.
+const DefaultRemoteBaseDir = "/data/walheim"
+
+// remoteBaseDir returns the effective remote base directory, falling back to
+// DefaultRemoteBaseDir when the field is not set in the manifest.
+func (s NamespaceSpec) remoteBaseDir() string {
+	if s.BaseDir != "" {
+		return s.BaseDir
+	}
+	return DefaultRemoteBaseDir
 }
 
 func (s NamespaceSpec) sshTarget() string {
@@ -42,6 +59,13 @@ func (s NamespaceSpec) usernameDisplay() string {
 		return s.Username
 	}
 	return "(from SSH config)"
+}
+
+func (s NamespaceSpec) baseDirDisplay() string {
+	if s.BaseDir != "" {
+		return s.BaseDir
+	}
+	return DefaultRemoteBaseDir + " (default)"
 }
 
 // ── App ───────────────────────────────────────────────────────────────────────

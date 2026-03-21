@@ -335,14 +335,15 @@ func (a *App) runDescribe(opts registry.OperationOpts) error {
 
 	// Check remote dir
 	remoteExists := false
-	if _, checkErr := client.RunOutput("test -d /data/walheim/apps/" + name + " && echo yes"); checkErr == nil {
+	remoteAppDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
+	if _, checkErr := client.RunOutput("test -d " + remoteAppDir + " && echo yes"); checkErr == nil {
 		remoteExists = true
 	}
 
 	// Get docker compose ps
 	composePS := ""
 	if remoteExists {
-		composePS, _ = client.RunOutput("cd /data/walheim/apps/" + name + " && docker compose ps 2>/dev/null")
+		composePS, _ = client.RunOutput("cd " + remoteAppDir + " && docker compose ps 2>/dev/null")
 	}
 
 	if jsonMode {
@@ -500,7 +501,7 @@ func (a *App) runStart(opts registry.OperationOpts) error {
 	}
 
 	localDir := a.ResourceDir(namespace, name)
-	remoteDir := "/data/walheim/apps/" + name
+	remoteDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
 
 	if err := rsync.NewSyncer().Sync(localDir, target, remoteDir); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("rsync: %w", err))
@@ -532,14 +533,15 @@ func (a *App) runPause(opts registry.OperationOpts) error {
 	}
 
 	// Check if remote dir exists — idempotent
+	remoteAppDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
 	sshClient := ssh.NewClient(target)
-	_, checkErr := sshClient.RunOutput("test -d /data/walheim/apps/" + name)
+	_, checkErr := sshClient.RunOutput("test -d " + remoteAppDir)
 	if checkErr != nil {
 		fmt.Printf("App %q is not deployed\n", name)
 		return nil
 	}
 
-	if err := sshClient.Run("cd /data/walheim/apps/" + name + " && docker compose down"); err != nil {
+	if err := sshClient.Run("cd " + remoteAppDir + " && docker compose down"); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("docker compose down: %w", err))
 	}
 
@@ -569,7 +571,7 @@ func (a *App) runStop(opts registry.OperationOpts) error {
 	target := nsMeta.Spec.sshTarget()
 
 	sshClient := ssh.NewClient(target)
-	if err := sshClient.Run("rm -rf /data/walheim/apps/" + name); err != nil {
+	if err := sshClient.Run("rm -rf " + nsMeta.Spec.remoteBaseDir() + "/apps/" + name); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("remove remote files: %w", err))
 	}
 
@@ -593,15 +595,16 @@ func (a *App) runPull(opts registry.OperationOpts) error {
 	}
 
 	// Check remote dir
+	remoteAppDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
 	sshClient := ssh.NewClient(target)
-	_, checkErr := sshClient.RunOutput("test -d /data/walheim/apps/" + name)
+	_, checkErr := sshClient.RunOutput("test -d " + remoteAppDir)
 	if checkErr != nil {
 		msg := fmt.Sprintf("app %q is not deployed in namespace %q", name, namespace)
 		output.Errorf(opts.Output == "json", "NotFound", msg, "Run 'whctl start app "+name+" -n "+namespace+"' to deploy it first.", nil, false)
 		return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 	}
 
-	if err := sshClient.Run("cd /data/walheim/apps/" + name + " && docker compose pull"); err != nil {
+	if err := sshClient.Run("cd " + remoteAppDir + " && docker compose pull"); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("docker compose pull: %w", err))
 	}
 
@@ -626,7 +629,7 @@ func (a *App) runLogs(opts registry.OperationOpts) error {
 
 	// Build remote command
 	var cmdParts []string
-	cmdParts = append(cmdParts, "cd /data/walheim/apps/"+name+" && docker compose logs")
+	cmdParts = append(cmdParts, "cd "+nsMeta.Spec.remoteBaseDir()+"/apps/"+name+" && docker compose logs")
 	if follow {
 		cmdParts = append(cmdParts, "--follow")
 	}
@@ -689,7 +692,7 @@ func (a *App) runExec(opts registry.OperationOpts) error {
 
 	// Build remote command
 	var cmdParts []string
-	cmdParts = append(cmdParts, "cd /data/walheim/apps/"+name+" && docker compose exec")
+	cmdParts = append(cmdParts, "cd "+nsMeta.Spec.remoteBaseDir()+"/apps/"+name+" && docker compose exec")
 	if !tty {
 		cmdParts = append(cmdParts, "--no-TTY")
 	}

@@ -87,6 +87,7 @@ func namespaceToMeta(name string, m *NamespaceManifest) resource.ResourceMeta {
 		Summary: map[string]string{
 			"HOSTNAME": h,
 			"USERNAME": m.Spec.usernameDisplay(),
+			"BASE DIR": m.Spec.baseDirDisplay(),
 		},
 		Raw: m,
 	}
@@ -198,17 +199,18 @@ func (n *Namespace) runCreate(opts registry.OperationOpts) error {
 		hostname = name
 	}
 	username := opts.String("username")
+	baseDir := opts.String("base-dir")
 
 	m := &NamespaceManifest{
 		APIVersion: namespaceKind.APIVersion(),
 		Kind:       namespaceKind.Kind,
 		Metadata:   ResourceMetadata{Name: name},
-		Spec:       NamespaceSpec{Hostname: hostname, Username: username},
+		Spec:       NamespaceSpec{Hostname: hostname, Username: username, BaseDir: baseDir},
 	}
 
 	if opts.DryRun {
-		fmt.Printf("Would create namespace %q (hostname: %s, username: %s)\n",
-			name, hostname, m.Spec.usernameDisplay())
+		fmt.Printf("Would create namespace %q (hostname: %s, username: %s, base-dir: %s)\n",
+			name, hostname, m.Spec.usernameDisplay(), m.Spec.baseDirDisplay())
 		return nil
 	}
 
@@ -222,8 +224,8 @@ func (n *Namespace) runCreate(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	fmt.Printf("Created namespace %q (hostname: %s, username: %s)\n",
-		name, hostname, m.Spec.usernameDisplay())
+	fmt.Printf("Created namespace %q (hostname: %s, username: %s, base-dir: %s)\n",
+		name, hostname, m.Spec.usernameDisplay(), m.Spec.baseDirDisplay())
 	return nil
 }
 
@@ -330,15 +332,16 @@ func (n *Namespace) runDelete(opts registry.OperationOpts) error {
 // ── describe ──────────────────────────────────────────────────────────────────
 
 type namespaceDescribeResult struct {
-	Name         string                   `json:"name"`
-	Hostname     string                   `json:"hostname"`
-	Username     string                   `json:"username,omitempty"`
-	SSH          string                   `json:"ssh"`
-	Connection   string                   `json:"connection"`
-	Docker       *string                  `json:"docker"`
-	DeployedApps []namespaceDeployedApp   `json:"deployed_apps,omitempty"`
-	Resources    namespaceResourceCounts  `json:"resources"`
-	Usage        *namespaceUsage          `json:"usage,omitempty"`
+	Name         string                  `json:"name"`
+	Hostname     string                  `json:"hostname"`
+	Username     string                  `json:"username,omitempty"`
+	BaseDir      string                  `json:"base_dir"`
+	SSH          string                  `json:"ssh"`
+	Connection   string                  `json:"connection"`
+	Docker       *string                 `json:"docker"`
+	DeployedApps []namespaceDeployedApp  `json:"deployed_apps,omitempty"`
+	Resources    namespaceResourceCounts `json:"resources"`
+	Usage        *namespaceUsage         `json:"usage,omitempty"`
 }
 
 type namespaceDeployedApp struct {
@@ -381,6 +384,7 @@ func (n *Namespace) describeJSON(name string, m *NamespaceManifest, target strin
 		Name:     name,
 		Hostname: m.Spec.Hostname,
 		Username: m.Spec.Username,
+		BaseDir:  m.Spec.remoteBaseDir(),
 		SSH:      target,
 	}
 
@@ -406,6 +410,7 @@ func (n *Namespace) describeHuman(name string, m *NamespaceManifest, target stri
 	fmt.Printf("Name:      %s\n", name)
 	fmt.Printf("Hostname:  %s\n", m.Spec.Hostname)
 	fmt.Printf("Username:  %s\n", m.Spec.usernameDisplay())
+	fmt.Printf("Base Dir:  %s\n", m.Spec.baseDirDisplay())
 	fmt.Printf("SSH:       %s\n", target)
 	fmt.Println()
 
@@ -661,10 +666,12 @@ func registerNamespace() {
 				Flags: []registry.FlagDef{
 					{Name: "hostname", Type: "string", Usage: "SSH hostname or IP (defaults to name if omitted)"},
 					{Name: "username", Type: "string", Usage: "SSH username (uses SSH config if omitted)"},
+					{Name: "base-dir", Type: "string", Usage: "Remote base directory for Walheim data (default: /data/walheim)"},
 				},
 				Examples: []string{
 					"whctl create namespace production --hostname prod.example.com --username admin",
 					"whctl create namespace staging --hostname 192.168.1.20",
+					"whctl create namespace homelab --hostname 192.168.1.5 --base-dir /opt/walheim",
 				},
 				Run: func(h resource.Handler, opts registry.OperationOpts) error {
 					return h.(*Namespace).runCreate(opts)
@@ -727,7 +734,7 @@ func registerNamespace() {
 				},
 			},
 		},
-		SummaryColumns: []string{"NAME", "HOSTNAME", "USERNAME"},
+		SummaryColumns: []string{"NAME", "HOSTNAME", "USERNAME", "BASE DIR"},
 		Factory: func(dataDir string, filesystem fs.FS) resource.Handler {
 			return newNamespace(dataDir, filesystem)
 		},
