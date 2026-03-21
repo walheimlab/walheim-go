@@ -61,6 +61,13 @@ func NewS3FS(cfg S3FSConfig) (*S3FS, error) {
 		clientOpts = append(clientOpts, s3.WithEndpointResolverV2(
 			&staticEndpointResolver{rawURL: cfg.Endpoint},
 		))
+		// Enable path-style addressing for custom endpoints so requests go to
+		// <endpoint>/<bucket>/key instead of <bucket>.<endpoint>/key.
+		// This is required for MinIO and most self-hosted S3-compatible services,
+		// and works equally well with Cloudflare R2 and DigitalOcean Spaces.
+		clientOpts = append(clientOpts, func(o *s3.Options) {
+			o.UsePathStyle = true
+		})
 	}
 
 	return &S3FS{
@@ -73,6 +80,12 @@ func NewS3FS(cfg S3FSConfig) (*S3FS, error) {
 // key converts an FS path to the full S3 object key, applying the prefix.
 // Paths are forward-slash normalized for cross-platform compatibility.
 func (s *S3FS) key(p string) string {
+	if p == "" {
+		if s.prefix != "" {
+			return s.prefix
+		}
+		return ""
+	}
 	// Normalize to forward slashes (important on Windows)
 	p = path.Clean(strings.ReplaceAll(p, "\\", "/"))
 	p = strings.TrimPrefix(p, "/")
@@ -80,6 +93,18 @@ func (s *S3FS) key(p string) string {
 		return p
 	}
 	return s.prefix + "/" + p
+}
+
+// Ping verifies connectivity by performing a HeadBucket request.
+// Returns an error if the bucket is unreachable or credentials are invalid.
+func (s *S3FS) Ping() error {
+	_, err := s.client.HeadBucket(context.Background(), &s3.HeadBucketInput{
+		Bucket: aws.String(s.bucket),
+	})
+	if err != nil {
+		return fmt.Errorf("S3 bucket %q is not accessible: %w", s.bucket, err)
+	}
+	return nil
 }
 
 // ReadFile reads a file from S3 by key.

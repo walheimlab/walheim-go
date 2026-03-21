@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/walheimlab/walheim-go/internal/config"
 	"github.com/walheimlab/walheim-go/internal/exitcode"
+	"github.com/walheimlab/walheim-go/internal/fs"
 )
 
 // newContextCmd builds the `whctl context` subcommand tree.
@@ -226,6 +227,23 @@ func runContextNewS3(gf *GlobalFlags, name, endpoint, region, bucket, prefix, ac
 		Prefix:          prefix,
 		AccessKeyID:     accessKeyID,
 		SecretAccessKey: secretKey,
+	}
+
+	// Verify bucket is accessible before saving the context
+	s3fs, err := fs.NewS3FS(fs.S3FSConfig{
+		Endpoint:        endpoint,
+		Region:          region,
+		Bucket:          bucket,
+		Prefix:          prefix,
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretKey,
+	})
+	if err != nil {
+		return exitErr(exitcode.Failure, fmt.Errorf("failed to initialise S3 client: %w", err))
+	}
+	fmt.Printf("Checking bucket %q...\n", bucket)
+	if err := s3fs.Ping(); err != nil {
+		return exitErr(exitcode.Failure, err)
 	}
 
 	if err := cfg.AddS3Context(name, s3cfg, true); err != nil {
