@@ -1,10 +1,17 @@
 // Package v1alpha1 contains all walheimlab.github.io/v1alpha1 resource kinds.
 package v1alpha1
 
+import (
+	"strings"
+
+	"gopkg.in/yaml.v3"
+)
+
 // ResourceMetadata is the common metadata block for all resource manifests.
 type ResourceMetadata struct {
-	Name   string            `yaml:"name"`
-	Labels map[string]string `yaml:"labels,omitempty"`
+	Name      string            `yaml:"name"`
+	Namespace string            `yaml:"namespace,omitempty"`
+	Labels    map[string]string `yaml:"labels,omitempty"`
 }
 
 // ── Namespace ─────────────────────────────────────────────────────────────────
@@ -40,9 +47,162 @@ func (s NamespaceSpec) usernameDisplay() string {
 // ── App ───────────────────────────────────────────────────────────────────────
 
 // AppManifest is the typed representation of a .app.yaml file.
-// Full spec fields are added in plan-04.
 type AppManifest struct {
 	APIVersion string           `yaml:"apiVersion"`
 	Kind       string           `yaml:"kind"`
 	Metadata   ResourceMetadata `yaml:"metadata"`
+	Spec       AppSpec          `yaml:"spec"`
+}
+
+// AppSpec holds the App-specific fields.
+type AppSpec struct {
+	// Compose holds the raw docker-compose structure.
+	// It is intentionally map[string]any because it mirrors an arbitrary
+	// user-authored docker-compose file whose service definitions, volume
+	// mounts, network configs, etc. are open-ended. Structured fields that
+	// Walheim cares about (envFrom, env) are separate typed fields below.
+	Compose  ComposeSpec    `yaml:"compose"`
+	EnvFrom  []EnvFromEntry `yaml:"envFrom,omitempty"`
+	Env      []EnvEntry     `yaml:"env,omitempty"`
+}
+
+// ComposeSpec is the raw docker-compose document.
+// Services is the only field Walheim reads programmatically; everything else
+// (volumes, networks, configs, etc.) is passed through verbatim.
+type ComposeSpec struct {
+	Services map[string]ComposeService `yaml:"services,omitempty"`
+	// Extra holds all other top-level compose keys (volumes, networks, …)
+	// preserved verbatim on round-trip.
+	Extra map[string]any `yaml:",inline"`
+}
+
+// ComposeService is a single service entry in a docker-compose file.
+// Walheim reads Image, Environment, and Labels; everything else is passed
+// through verbatim via Extra.
+type ComposeService struct {
+	Image       string            `yaml:"image,omitempty"`
+	Environment ServiceEnv        `yaml:"environment,omitempty"`
+	Labels      ServiceLabels     `yaml:"labels,omitempty"`
+	// Extra holds all other service keys (ports, volumes, depends_on, …)
+	// preserved verbatim on round-trip.
+	Extra map[string]any `yaml:",inline"`
+}
+
+// ServiceEnv represents the docker-compose environment field.
+// Docker Compose accepts both list form (["KEY=val"]) and map form ({KEY: val}).
+// yaml.v3 unmarshals whichever form the user wrote; we normalise to map on use.
+type ServiceEnv struct {
+	Values map[string]string
+}
+
+func (e *ServiceEnv) UnmarshalYAML(value *yaml.Node) error {
+	e.Values = make(map[string]string)
+	switch value.Kind {
+	case yaml.MappingNode:
+		// map form: {KEY: value}
+		var m map[string]string
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		e.Values = m
+	case yaml.SequenceNode:
+		// list form: ["KEY=value", "KEY2=value2"]
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		for _, item := range list {
+			if idx := strings.IndexByte(item, '='); idx >= 0 {
+				e.Values[item[:idx]] = item[idx+1:]
+			} else {
+				e.Values[item] = ""
+			}
+		}
+	}
+	return nil
+}
+
+func (e ServiceEnv) MarshalYAML() (interface{}, error) {
+	// Always marshal back as map form for consistency.
+	return e.Values, nil
+}
+
+// ServiceLabels represents the docker-compose labels field.
+// Accepts both list form (["key=val"]) and map form ({key: val}).
+type ServiceLabels struct {
+	Values map[string]string
+}
+
+func (l *ServiceLabels) UnmarshalYAML(value *yaml.Node) error {
+	l.Values = make(map[string]string)
+	switch value.Kind {
+	case yaml.MappingNode:
+		var m map[string]string
+		if err := value.Decode(&m); err != nil {
+			return err
+		}
+		l.Values = m
+	case yaml.SequenceNode:
+		var list []string
+		if err := value.Decode(&list); err != nil {
+			return err
+		}
+		for _, item := range list {
+			if idx := strings.IndexByte(item, '='); idx >= 0 {
+				l.Values[item[:idx]] = item[idx+1:]
+			} else {
+				l.Values[item] = ""
+			}
+		}
+	}
+	return nil
+}
+
+func (l ServiceLabels) MarshalYAML() (interface{}, error) {
+	return l.Values, nil
+}
+
+// EnvFromEntry injects all keys from a Secret or ConfigMap into services.
+type EnvFromEntry struct {
+	SecretRef    *NamedRef `yaml:"secretRef,omitempty"`
+	ConfigMapRef *NamedRef `yaml:"configMapRef,omitempty"`
+	// ServiceNames restricts injection to the named services.
+	// Empty or absent means all services.
+	ServiceNames []string `yaml:"serviceNames,omitempty"`
+}
+
+// NamedRef is a reference to a named resource (Secret or ConfigMap).
+type NamedRef struct {
+	Name string `yaml:"name"`
+}
+
+// EnvEntry injects a single environment variable into services.
+type EnvEntry struct {
+	Name  string `yaml:"name"`
+	Value string `yaml:"value"`
+	// ServiceNames restricts injection to the named services.
+	// Empty or absent means all services.
+	ServiceNames []string `yaml:"serviceNames,omitempty"`
+}
+
+// ── Secret & ConfigMap (on-disk manifest structs) ─────────────────────────────
+
+// SecretManifest is the typed representation of a .secret.yaml file.
+type SecretManifest struct {
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   ResourceMetadata  `yaml:"metadata"`
+	// Data holds base64-encoded key/value pairs.
+	Data       map[string]string `yaml:"data,omitempty"`
+	// StringData holds plaintext key/value pairs.
+	// On merge, StringData takes precedence over Data for the same key.
+	StringData map[string]string `yaml:"stringData,omitempty"`
+}
+
+// ConfigMapManifest is the typed representation of a .configmap.yaml file.
+type ConfigMapManifest struct {
+	APIVersion string            `yaml:"apiVersion"`
+	Kind       string            `yaml:"kind"`
+	Metadata   ResourceMetadata  `yaml:"metadata"`
+	Data       map[string]string `yaml:"data,omitempty"`
 }
