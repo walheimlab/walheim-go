@@ -7,20 +7,15 @@ type KindInfo struct {
 	Aliases  []string // e.g. ["ns"]
 }
 
-// Manifest is a parsed YAML document.
-type Manifest map[string]any
-
-// SummaryField extracts a single display value from a parsed manifest.
-// Used to populate the extra columns in table output.
-type SummaryField func(m Manifest) string
-
 // ResourceMeta is what every list/get operation returns per resource.
+// Raw holds the typed manifest struct for the resource (e.g. *NamespaceManifest).
+// The output layer marshals Raw back to YAML for single-resource display.
 type ResourceMeta struct {
 	Namespace string            // empty for cluster-scoped resources
 	Name      string
 	Labels    map[string]string // from metadata.labels
-	Summary   map[string]string // computed by SummaryField functions
-	Raw       Manifest          // full parsed manifest
+	Summary   map[string]string // computed by the resource package
+	Raw       any               // the typed manifest struct
 }
 
 // Handler is the minimal interface every resource package satisfies.

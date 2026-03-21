@@ -83,7 +83,7 @@ func Set(filesystem fs.FS, dataDir, kind, name, namespace string, specs []string
 		return fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	var m resource.Manifest
+	var m map[string]any
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}
@@ -150,7 +150,7 @@ func List(filesystem fs.FS, dataDir, kind, name, namespace string) error {
 		return fmt.Errorf("failed to read manifest: %w", err)
 	}
 
-	var m resource.Manifest
+	var m map[string]any
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return fmt.Errorf("failed to parse manifest: %w", err)
 	}

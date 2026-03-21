@@ -73,18 +73,8 @@ func validateResourceName(name string) error {
 	return nil
 }
 
-// exitErr wraps an error with an exit code. The error is returned from cobra RunE;
-// the main function calls os.Exit when cobra returns a non-nil error.
-// We use a special wrapper so the caller can inspect the exit code.
-type exitError struct {
-	code int
-	err  error
-}
-
-func (e *exitError) Error() string { return e.err.Error() }
-func (e *exitError) ExitCode() int { return e.code }
-
-// exitErr creates an exitError.
+// exitErr wraps an error with an exit code using the shared exitcode.Error type.
+// Returned from cobra RunE; main() reads the exit code via ExitCode().
 func exitErr(code int, err error) error {
-	return &exitError{code: code, err: err}
+	return exitcode.New(code, err)
 }

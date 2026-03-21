@@ -27,9 +27,9 @@ type GlobalFlags struct {
 func main() {
 	if err := buildRoot().Execute(); err != nil {
 		// Extract exit code if available
-		if ee, ok := err.(*exitError); ok {
-			fmt.Fprintln(os.Stderr, "Error:", ee.err.Error())
-			os.Exit(ee.code)
+		if ee, ok := err.(*exitcode.Error); ok {
+			fmt.Fprintln(os.Stderr, "Error:", ee.Err.Error())
+			os.Exit(ee.Code)
 		}
 		fmt.Fprintln(os.Stderr, "Error:", err.Error())
 		os.Exit(exitcode.Failure)

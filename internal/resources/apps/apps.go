@@ -50,11 +50,6 @@ func NewApps(dataDir string, filesystem fs.FS) *Apps {
 			FS:               filesystem,
 			Info:             kindInfo,
 			ManifestFilename: ".app.yaml",
-			Fields: map[string]resource.SummaryField{
-				"STATUS": func(m resource.Manifest) string {
-					return "Unknown"
-				},
-			},
 		},
 	}
 }
