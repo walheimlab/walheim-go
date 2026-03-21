@@ -5,4 +5,6 @@ package v1alpha1
 func Register() {
 	registerNamespace()
 	registerApp()
+	registerSecret()
+	registerConfigMap()
 }
