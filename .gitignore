@@ -1,0 +1,17 @@
+# Binary
+whctl
+
+# Agent plans
+plans/
+
+# Build output
+dist/
+
+# Go
+*.test
+*.out
+coverage.html
+
+# OS
+.DS_Store
+Thumbs.db
