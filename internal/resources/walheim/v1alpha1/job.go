@@ -3,11 +3,8 @@ package v1alpha1
 import (
 	"fmt"
 	"path/filepath"
-	"sort"
-	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -196,19 +193,14 @@ func aggregateJobStatus(results map[string]jobRunInfo, namespace, name string) (
 	return
 }
 
-// ── Env resolution & docker run command building ──────────────────────────────
+// ── Compose file generation ───────────────────────────────────────────────────
 
-// shellQuote wraps s in single quotes, escaping any internal single quotes.
-// Produces a POSIX-safe shell argument.
-func shellQuote(s string) string {
-	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
-}
-
-// resolveJobEnv loads envFrom sources and applies env overrides, returning a
-// flat map of env var key → value.
-func resolveJobEnv(ns string, spec JobSpec, filesystem fs.FS, dataDir string) (map[string]string, error) {
+// generateJobCompose builds a docker-compose.yml for the job and writes it to
+// <localResourceDir>/docker-compose.yml. Mount files are also written under
+// <localResourceDir>/mounts/ so they can be rsynced together.
+func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesystem fs.FS, dataDir string) error {
+	// Resolve env (envFrom + env overrides).
 	env := make(map[string]string)
-
 	for _, entry := range spec.EnvFrom {
 		var kvMap map[string]string
 		var err error
@@ -220,7 +212,7 @@ func resolveJobEnv(ns string, spec JobSpec, filesystem fs.FS, dataDir string) (m
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("envFrom: %w", err)
+			return fmt.Errorf("envFrom: %w", err)
 		}
 		for k, v := range kvMap {
 			if _, exists := env[k]; !exists {
@@ -228,30 +220,36 @@ func resolveJobEnv(ns string, spec JobSpec, filesystem fs.FS, dataDir string) (m
 			}
 		}
 	}
-
 	for _, entry := range spec.Env {
 		env[entry.Name] = substituteVars(entry.Value, env)
 	}
 
-	return env, nil
-}
+	svc := ComposeService{
+		Image: spec.Image,
+		Environment: ServiceEnv{Values: env},
+		Labels: ServiceLabels{Values: map[string]string{
+			"walheim.managed":   "true",
+			"walheim.namespace": ns,
+			"walheim.job":       name,
+		}},
+		Extra: map[string]any{
+			"restart": "no",
+		},
+	}
 
-// writeMountsLocally writes mount files under <localResourceDir>/mounts/ for
-// all mount entries in spec. Called before rsyncing the job directory.
-func writeMountsLocally(localResourceDir string, mounts []MountEntry, namespace string, filesystem fs.FS, dataDir string) error {
-	for _, entry := range mounts {
+	// Write mount files and add volumes.
+	for _, entry := range spec.Mounts {
 		var kvMap map[string]string
 		var sourceType, sourceName string
 		var err error
-
 		if entry.SecretRef != nil {
-			kvMap, err = loadSecret(namespace, entry.SecretRef.Name, filesystem, dataDir)
+			kvMap, err = loadSecret(ns, entry.SecretRef.Name, filesystem, dataDir)
 			if err != nil {
 				return fmt.Errorf("mounts: %w", err)
 			}
 			sourceType, sourceName = "secrets", entry.SecretRef.Name
 		} else if entry.ConfigMapRef != nil {
-			kvMap, err = loadConfigMap(namespace, entry.ConfigMapRef.Name, filesystem, dataDir)
+			kvMap, err = loadConfigMap(ns, entry.ConfigMapRef.Name, filesystem, dataDir)
 			if err != nil {
 				return fmt.Errorf("mounts: %w", err)
 			}
@@ -259,69 +257,26 @@ func writeMountsLocally(localResourceDir string, mounts []MountEntry, namespace 
 		} else {
 			continue
 		}
-
 		if err := writeMountFiles(localResourceDir, sourceType, sourceName, kvMap, filesystem); err != nil {
 			return err
 		}
+		existing, _ := svc.Extra["volumes"].([]any)
+		svc.Extra["volumes"] = append(existing, fmt.Sprintf("./mounts/%s/%s:%s:ro", sourceType, sourceName, entry.MountPath))
 	}
-	return nil
-}
 
-// buildDockerRunCmd constructs the full docker run shell command string.
-// remoteResourceDir is the absolute path on the remote host where the job
-// directory was rsynced; used to build -v args for mounts. Empty means no mounts.
-// When detach is true, adds -d so the command returns the container ID immediately.
-func buildDockerRunCmd(ns, name string, spec JobSpec, detach bool, remoteResourceDir string, filesystem fs.FS, dataDir string) (string, error) {
-	env, err := resolveJobEnv(ns, spec, filesystem, dataDir)
+	if len(spec.Command) > 0 {
+		svc.Extra["command"] = spec.Command
+	}
+
+	compose := ComposeSpec{
+		Services: map[string]ComposeService{"job": svc},
+	}
+	encoded, err := yaml.Marshal(compose)
 	if err != nil {
-		return "", err
+		return fmt.Errorf("marshal docker-compose: %w", err)
 	}
-
-	containerName := fmt.Sprintf("walheim-job-%s-%s", name, strconv.FormatInt(time.Now().UnixMilli(), 36))
-
-	var parts []string
-	parts = append(parts, "docker", "run")
-	if detach {
-		parts = append(parts, "-d")
-	}
-	parts = append(parts,
-		"--name", shellQuote(containerName),
-		"--label", "walheim.managed=true",
-		"--label", shellQuote("walheim.namespace="+ns),
-		"--label", shellQuote("walheim.job="+name),
-	)
-
-	keys := make([]string, 0, len(env))
-	for k := range env {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	for _, k := range keys {
-		parts = append(parts, "-e", shellQuote(k+"="+env[k]))
-	}
-
-	// Append -v args for each mount entry (all entries apply; serviceNames is ignored for Job).
-	if remoteResourceDir != "" {
-		for _, entry := range spec.Mounts {
-			var sourceType, sourceName string
-			if entry.SecretRef != nil {
-				sourceType, sourceName = "secrets", entry.SecretRef.Name
-			} else if entry.ConfigMapRef != nil {
-				sourceType, sourceName = "configmaps", entry.ConfigMapRef.Name
-			} else {
-				continue
-			}
-			remoteMountDir := remoteResourceDir + "/mounts/" + sourceType + "/" + sourceName
-			parts = append(parts, "-v", shellQuote(remoteMountDir+":"+entry.MountPath+":ro"))
-		}
-	}
-
-	parts = append(parts, shellQuote(spec.Image))
-	for _, arg := range spec.Command {
-		parts = append(parts, shellQuote(arg))
-	}
-
-	return strings.Join(parts, " "), nil
+	composePath := filepath.Join(localResourceDir, "docker-compose.yml")
+	return filesystem.WriteFile(composePath, encoded)
 }
 
 // ── Typed read/list helpers ───────────────────────────────────────────────────
@@ -521,32 +476,30 @@ func (j *Job) runRun(opts registry.OperationOpts) error {
 	}
 
 	target := nsMeta.Spec.sshTarget()
-	remoteResourceDir := ""
+	localResourceDir := j.ResourceDir(namespace, name)
+	remoteResourceDir := nsMeta.Spec.remoteBaseDir() + "/jobs/" + name
 
-	// If there are mounts, write files locally and rsync the job dir to remote.
-	if len(m.Spec.Mounts) > 0 {
-		localResourceDir := j.ResourceDir(namespace, name)
-		if err := writeMountsLocally(localResourceDir, m.Spec.Mounts, namespace, j.FS, j.DataDir); err != nil {
-			return exitErr(exitcode.Failure, err)
-		}
-		remoteResourceDir = nsMeta.Spec.remoteBaseDir() + "/jobs/" + name
-		if !opts.DryRun {
-			if err := rsync.NewSyncer().Sync(localResourceDir, target, remoteResourceDir); err != nil {
-				return exitErr(exitcode.Failure, fmt.Errorf("rsync mounts: %w", err))
-			}
-		}
+	if err := generateJobCompose(localResourceDir, namespace, name, m.Spec, j.FS, j.DataDir); err != nil {
+		return exitErr(exitcode.Failure, fmt.Errorf("generate docker-compose: %w", err))
 	}
 
 	detach := opts.Bool("detach")
 
-	cmd, err := buildDockerRunCmd(namespace, name, m.Spec, detach, remoteResourceDir, j.FS, j.DataDir)
-	if err != nil {
-		return exitErr(exitcode.Failure, fmt.Errorf("build docker run: %w", err))
+	var cmdParts []string
+	cmdParts = append(cmdParts, "cd "+remoteResourceDir+" && docker compose run --rm")
+	if detach {
+		cmdParts = append(cmdParts, "--detach")
 	}
+	cmdParts = append(cmdParts, "job")
+	cmd := strings.Join(cmdParts, " ")
 
 	if opts.DryRun {
-		fmt.Printf("Would run on %s: %s\n", target, cmd)
+		fmt.Printf("Would rsync and run on %s: %s\n", target, cmd)
 		return nil
+	}
+
+	if err := rsync.NewSyncer().Sync(localResourceDir, target, remoteResourceDir); err != nil {
+		return exitErr(exitcode.Failure, fmt.Errorf("rsync: %w", err))
 	}
 
 	sshClient := ssh.NewClient(target)
@@ -601,23 +554,17 @@ func (j *Job) runLogs(opts registry.OperationOpts) error {
 	follow := opts.Bool("follow")
 	tail := opts.Int("tail")
 
-	// Find the most recent container for this job.
-	findCmd := fmt.Sprintf(
-		`docker ps -aq --filter %s --filter %s | head -1`,
-		shellQuote("label=walheim.namespace="+namespace),
-		shellQuote("label=walheim.job="+name),
-	)
-
-	var logParts []string
-	logParts = append(logParts, "docker", "logs")
+	remoteResourceDir := nsMeta.Spec.remoteBaseDir() + "/jobs/" + name
+	var cmdParts []string
+	cmdParts = append(cmdParts, "cd "+remoteResourceDir+" && docker compose logs")
 	if follow {
-		logParts = append(logParts, "--follow")
+		cmdParts = append(cmdParts, "--follow")
 	}
 	if tail != -1 {
-		logParts = append(logParts, fmt.Sprintf("--tail %d", tail))
+		cmdParts = append(cmdParts, fmt.Sprintf("--tail %d", tail))
 	}
-	logParts = append(logParts, fmt.Sprintf("$(%s)", findCmd))
-	cmd := strings.Join(logParts, " ")
+	cmdParts = append(cmdParts, "job")
+	cmd := strings.Join(cmdParts, " ")
 
 	if opts.DryRun {
 		fmt.Printf("Would run on %s: %s\n", nsMeta.Spec.sshTarget(), cmd)
