@@ -53,13 +53,13 @@ func newContextListCmd(gf *GlobalFlags) *cobra.Command {
 
 			if jsonMode {
 				type contextJSON struct {
-					Name    string `json:"name"`
-					DataDir string `json:"dataDir"`
-					Active  bool   `json:"active"`
+					Name     string `json:"name"`
+					Location string `json:"location"`
+					Active   bool   `json:"active"`
 				}
 				result := make([]contextJSON, len(views))
 				for i, v := range views {
-					result[i] = contextJSON{Name: v.Name, DataDir: v.DataDir, Active: v.Active}
+					result[i] = contextJSON{Name: v.Name, Location: v.Location, Active: v.Active}
 				}
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
@@ -67,13 +67,13 @@ func newContextListCmd(gf *GlobalFlags) *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "ACTIVE\tNAME\tDATA DIR")
+			fmt.Fprintln(w, "ACTIVE\tNAME\tLOCATION")
 			for _, v := range views {
 				active := " "
 				if v.Active {
 					active = "*"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", active, v.Name, v.DataDir)
+				fmt.Fprintf(w, "%s\t%s\t%s\n", active, v.Name, v.Location)
 			}
 			return w.Flush()
 		},
@@ -107,28 +107,53 @@ func newContextUseCmd(gf *GlobalFlags) *cobra.Command {
 	}
 }
 
-// newContextNewCmd implements `whctl context new <name> --data-dir <path>`.
+// newContextNewCmd implements `whctl context new <name> --data-dir <path>` (local)
+// or `whctl context new <name> --backend s3 --s3-bucket <bucket> ...` (S3).
 func newContextNewCmd(gf *GlobalFlags) *cobra.Command {
-	var dataDirFlag string
+	var (
+		dataDirFlag    string
+		backendFlag    string
+		s3EndpointFlag string
+		s3RegionFlag   string
+		s3BucketFlag   string
+		s3PrefixFlag   string
+		s3AccessKeyID  string
+		s3SecretKey    string
+	)
 
 	cmd := &cobra.Command{
 		Use:   "new <name>",
 		Short: "Add a new context and activate it",
-		Long: `Add a new context pointing to an existing data directory.
-The directory must already exist. The namespaces/ subdirectory is created if missing.`,
-		Example: "  whctl context new homelab --data-dir ~/homelab",
+		Long: `Add a new context pointing to a homelab data store.
+
+For a local directory:
+  whctl context new homelab --data-dir ~/homelab
+
+For an S3-compatible store (Cloudflare R2, DigitalOcean Spaces, etc.):
+  whctl context new r2-prod --backend s3 \
+    --s3-endpoint https://<id>.r2.cloudflarestorage.com \
+    --s3-region auto --s3-bucket my-bucket \
+    [--s3-prefix walheim] \
+    [--s3-access-key-id <key>] [--s3-secret-access-key <secret>]
+
+Credentials for S3 may be omitted to use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY env vars.`,
+		Example: "  whctl context new homelab --data-dir ~/homelab\n  whctl context new r2-prod --backend s3 --s3-region auto --s3-bucket my-bucket",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			name := args[0]
 
-			if dataDirFlag == "" {
-				return exitErr(exitcode.UsageError, fmt.Errorf("--data-dir is required"))
+			if backendFlag == "s3" {
+				return runContextNewS3(gf, name, s3EndpointFlag, s3RegionFlag, s3BucketFlag,
+					s3PrefixFlag, s3AccessKeyID, s3SecretKey)
 			}
 
-			// Expand ~ manually since config.expandHome is unexported
+			// Local backend (default)
+			if dataDirFlag == "" {
+				return exitErr(exitcode.UsageError, fmt.Errorf("--data-dir is required (or use --backend s3)"))
+			}
+
 			expandedDir := expandHome(dataDirFlag)
 
-			// data directory must pre-exist
 			info, err := os.Stat(expandedDir)
 			if err != nil {
 				if os.IsNotExist(err) {
@@ -142,7 +167,6 @@ The directory must already exist. The namespaces/ subdirectory is created if mis
 					fmt.Errorf("%q is not a directory", expandedDir))
 			}
 
-			// Auto-create namespaces/ subdirectory if missing
 			nsDir := filepath.Join(expandedDir, "namespaces")
 			if _, err := os.Stat(nsDir); os.IsNotExist(err) {
 				fmt.Printf("Notice: creating %s\n", nsDir)
@@ -152,18 +176,9 @@ The directory must already exist. The namespaces/ subdirectory is created if mis
 				}
 			}
 
-			// Try loading existing config; fall back to creating a fresh one.
-			var cfg *config.Config
-			if existing, loadErr := config.Load(gf.Whconfig); loadErr == nil {
-				cfg = existing
-			} else {
-				// Config doesn't exist or is invalid — initialise a fresh one.
-				fresh, initErr := config.Init(gf.Whconfig)
-				if initErr != nil {
-					return exitErr(exitcode.Failure,
-						fmt.Errorf("failed to initialise config: %w", initErr))
-				}
-				cfg = fresh
+			cfg, err := loadOrInitConfig(gf.Whconfig)
+			if err != nil {
+				return err
 			}
 
 			if err := cfg.AddContext(name, expandedDir, true); err != nil {
@@ -179,8 +194,66 @@ The directory must already exist. The namespaces/ subdirectory is created if mis
 		},
 	}
 
-	cmd.Flags().StringVar(&dataDirFlag, "data-dir", "", "Path to homelab data directory (must exist)")
+	cmd.Flags().StringVar(&dataDirFlag, "data-dir", "", "Path to homelab data directory (local backend, must exist)")
+	cmd.Flags().StringVar(&backendFlag, "backend", "", "Storage backend: local (default) or s3")
+	cmd.Flags().StringVar(&s3EndpointFlag, "s3-endpoint", "", "S3-compatible endpoint URL (e.g. https://abc.r2.cloudflarestorage.com)")
+	cmd.Flags().StringVar(&s3RegionFlag, "s3-region", "", "S3 region (e.g. auto, us-east-1)")
+	cmd.Flags().StringVar(&s3BucketFlag, "s3-bucket", "", "S3 bucket name")
+	cmd.Flags().StringVar(&s3PrefixFlag, "s3-prefix", "", "Optional S3 key prefix within the bucket")
+	cmd.Flags().StringVar(&s3AccessKeyID, "s3-access-key-id", "", "S3 access key ID (omit to use AWS_ACCESS_KEY_ID env var)")
+	cmd.Flags().StringVar(&s3SecretKey, "s3-secret-access-key", "", "S3 secret access key (omit to use AWS_SECRET_ACCESS_KEY env var)")
 	return cmd
+}
+
+// runContextNewS3 handles `whctl context new --backend s3`.
+func runContextNewS3(gf *GlobalFlags, name, endpoint, region, bucket, prefix, accessKeyID, secretKey string) error {
+	if bucket == "" {
+		return exitErr(exitcode.UsageError, fmt.Errorf("--s3-bucket is required for S3 backend"))
+	}
+	if region == "" {
+		return exitErr(exitcode.UsageError, fmt.Errorf("--s3-region is required for S3 backend"))
+	}
+
+	cfg, err := loadOrInitConfig(gf.Whconfig)
+	if err != nil {
+		return err
+	}
+
+	s3cfg := config.S3Config{
+		Endpoint:        endpoint,
+		Region:          region,
+		Bucket:          bucket,
+		Prefix:          prefix,
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretKey,
+	}
+
+	if err := cfg.AddS3Context(name, s3cfg, true); err != nil {
+		return exitErr(exitcode.Conflict, err)
+	}
+
+	if err := cfg.Save(); err != nil {
+		return exitErr(exitcode.Failure, err)
+	}
+
+	loc := "s3://" + bucket
+	if prefix != "" {
+		loc += "/" + prefix
+	}
+	fmt.Printf("Added context %q (location: %s) and set as active\n", name, loc)
+	return nil
+}
+
+// loadOrInitConfig tries to load the existing config; if missing, initialises a fresh one.
+func loadOrInitConfig(whconfigFlag string) (*config.Config, error) {
+	if existing, loadErr := config.Load(whconfigFlag); loadErr == nil {
+		return existing, nil
+	}
+	fresh, initErr := config.Init(whconfigFlag)
+	if initErr != nil {
+		return nil, exitErr(exitcode.Failure, fmt.Errorf("failed to initialise config: %w", initErr))
+	}
+	return fresh, nil
 }
 
 // newContextDeleteCmd implements `whctl context delete <name>`.
@@ -230,14 +303,14 @@ func newContextCurrentCmd(gf *GlobalFlags) *cobra.Command {
 				if v.Active {
 					if jsonMode {
 						type currentJSON struct {
-							Name    string `json:"name"`
-							DataDir string `json:"dataDir"`
+							Name     string `json:"name"`
+							Location string `json:"location"`
 						}
 						enc := json.NewEncoder(os.Stdout)
 						enc.SetIndent("", "  ")
-						return enc.Encode(currentJSON{Name: v.Name, DataDir: v.DataDir})
+						return enc.Encode(currentJSON{Name: v.Name, Location: v.Location})
 					}
-					fmt.Printf("%s\t%s\n", v.Name, v.DataDir)
+					fmt.Printf("%s\t%s\n", v.Name, v.Location)
 					return nil
 				}
 			}

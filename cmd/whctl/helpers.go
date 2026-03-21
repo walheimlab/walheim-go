@@ -11,23 +11,37 @@ import (
 
 	"github.com/walheimlab/walheim-go/internal/config"
 	"github.com/walheimlab/walheim-go/internal/exitcode"
+	"github.com/walheimlab/walheim-go/internal/fs"
 )
+
+// resolveBackend loads config and returns the FS implementation and dataDir for the active context.
+// For local contexts, returns (LocalFS, dataDir, nil).
+// For S3 contexts, returns (S3FS, "", nil) — dataDir is always empty for S3.
+func resolveBackend(contextFlag, whconfigFlag string) (fs.FS, string, error) {
+	cfg, err := config.Load(whconfigFlag)
+	if err != nil {
+		return nil, "", fmt.Errorf("no config found — run 'whctl context new' to create one\n(%v)", err)
+	}
+
+	ctx, err := cfg.ContextForName(contextFlag)
+	if err != nil {
+		return nil, "", fmt.Errorf("context error: %w", err)
+	}
+
+	filesystem, dataDir, err := fs.FromContext(ctx)
+	if err != nil {
+		return nil, "", fmt.Errorf("failed to initialise storage backend: %w", err)
+	}
+
+	return filesystem, dataDir, nil
+}
 
 // resolveDataDir loads config and returns the active context's dataDir.
 // contextFlag: if non-empty, overrides the active context name.
 // whconfigFlag: if non-empty, overrides the config file path.
 func resolveDataDir(contextFlag, whconfigFlag string) (string, error) {
-	cfg, err := config.Load(whconfigFlag)
-	if err != nil {
-		return "", fmt.Errorf("no config found — run 'whctl context new' to create one\n(%v)", err)
-	}
-
-	dataDir, err := cfg.DataDir(contextFlag)
-	if err != nil {
-		return "", fmt.Errorf("context error: %w", err)
-	}
-
-	return dataDir, nil
+	_, dataDir, err := resolveBackend(contextFlag, whconfigFlag)
+	return dataDir, err
 }
 
 // isTTY returns true if stdin is connected to a terminal.

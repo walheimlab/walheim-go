@@ -33,17 +33,35 @@ func (e *ValidationError) Error() string {
 	return e.message
 }
 
+// S3Config holds configuration for an S3-compatible storage backend.
+// AccessKeyID and SecretAccessKey are optional; if omitted, the AWS SDK
+// credential chain is used (AWS_ACCESS_KEY_ID env var, ~/.aws/credentials, etc.).
+type S3Config struct {
+	Endpoint        string `yaml:"endpoint"`
+	Region          string `yaml:"region"`
+	Bucket          string `yaml:"bucket"`
+	Prefix          string `yaml:"prefix,omitempty"`
+	AccessKeyID     string `yaml:"accessKeyID,omitempty"`
+	SecretAccessKey string `yaml:"secretAccessKey,omitempty"`
+}
+
 // Context represents a single context in the config.
 type Context struct {
-	Name    string `yaml:"name"`
-	DataDir string `yaml:"dataDir"`
+	Name    string    `yaml:"name"`
+	DataDir string    `yaml:"dataDir,omitempty"`
+	S3      *S3Config `yaml:"s3,omitempty"`
 }
+
+// IsS3 reports whether this context uses an S3-compatible storage backend.
+func (c *Context) IsS3() bool { return c.S3 != nil }
 
 // ContextView is for listing contexts with "active" status.
 type ContextView struct {
-	Name    string
-	DataDir string
-	Active  bool
+	Name     string
+	DataDir  string
+	S3       *S3Config
+	Location string // display string: local path or "s3://bucket/prefix"
+	Active   bool
 }
 
 // Config represents the entire ~/.walheim/config file.
@@ -199,6 +217,47 @@ func (c *Config) DataDir(contextName string) (string, error) {
 	}
 }
 
+// ContextForName returns the full Context for the given name.
+// If name is empty, returns the current context.
+func (c *Config) ContextForName(name string) (*Context, error) {
+	if name == "" {
+		name = c.CurrentContext
+	}
+
+	for i := range c.Contexts {
+		if c.Contexts[i].Name == name {
+			return &c.Contexts[i], nil
+		}
+	}
+
+	return nil, &ValidationError{
+		message: fmt.Sprintf("context %q not found", name),
+	}
+}
+
+// AddS3Context adds a new S3-backed context.
+// If activate is true, sets it as the current context.
+func (c *Config) AddS3Context(name string, s3cfg S3Config, activate bool) error {
+	for _, ctx := range c.Contexts {
+		if ctx.Name == name {
+			return &ValidationError{
+				message: fmt.Sprintf("context %q already exists", name),
+			}
+		}
+	}
+
+	c.Contexts = append(c.Contexts, Context{
+		Name: name,
+		S3:   &s3cfg,
+	})
+
+	if activate {
+		c.CurrentContext = name
+	}
+
+	return nil
+}
+
 // AddContext adds a new context.
 // If activate is true, sets it as the current context.
 func (c *Config) AddContext(name, dataDir string, activate bool) error {
@@ -267,10 +326,19 @@ func (c *Config) UseContext(name string) error {
 func (c *Config) ListContexts() []ContextView {
 	var result []ContextView
 	for _, ctx := range c.Contexts {
+		loc := ctx.DataDir
+		if ctx.S3 != nil {
+			loc = "s3://" + ctx.S3.Bucket
+			if ctx.S3.Prefix != "" {
+				loc += "/" + ctx.S3.Prefix
+			}
+		}
 		result = append(result, ContextView{
-			Name:    ctx.Name,
-			DataDir: ctx.DataDir,
-			Active:  ctx.Name == c.CurrentContext,
+			Name:     ctx.Name,
+			DataDir:  ctx.DataDir,
+			S3:       ctx.S3,
+			Location: loc,
+			Active:   ctx.Name == c.CurrentContext,
 		})
 	}
 	return result
@@ -304,9 +372,14 @@ func (c *Config) validate() error {
 				message: "context name cannot be empty",
 			}
 		}
-		if ctx.DataDir == "" {
+		if ctx.DataDir == "" && ctx.S3 == nil {
 			return &ValidationError{
-				message: fmt.Sprintf("context %q missing dataDir", ctx.Name),
+				message: fmt.Sprintf("context %q missing dataDir or s3 config", ctx.Name),
+			}
+		}
+		if ctx.S3 != nil {
+			if err := validateS3Config(ctx.Name, ctx.S3); err != nil {
+				return err
 			}
 		}
 		if seen[ctx.Name] {
@@ -324,6 +397,21 @@ func (c *Config) validate() error {
 		}
 	}
 
+	return nil
+}
+
+// validateS3Config checks required fields for an S3-backed context.
+func validateS3Config(contextName string, s3 *S3Config) error {
+	if s3.Bucket == "" {
+		return &ValidationError{
+			message: fmt.Sprintf("context %q: s3.bucket is required", contextName),
+		}
+	}
+	if s3.Region == "" {
+		return &ValidationError{
+			message: fmt.Sprintf("context %q: s3.region is required", contextName),
+		}
+	}
 	return nil
 }
 

@@ -76,7 +76,7 @@ Global flags apply to every command. Set WHCONFIG env var to override config fil
 	labelCmd.GroupID = "mgmt"
 	root.AddCommand(labelCmd)
 
-	BuildCommandTree(root, gf, localFS)
+	BuildCommandTree(root, gf)
 
 	return root
 }
@@ -95,10 +95,10 @@ func newVersionCmd() *cobra.Command {
 
 // BuildCommandTree generates one cobra command per unique verb across all
 // registered resources, then adds it to root.
-func BuildCommandTree(root *cobra.Command, gf *GlobalFlags, localFS fs.FS) {
+func BuildCommandTree(root *cobra.Command, gf *GlobalFlags) {
 	for _, verb := range registry.AllOperations() {
 		verb := verb // capture
-		cmd := buildVerbCommand(verb, gf, localFS)
+		cmd := buildVerbCommand(verb, gf)
 		cmd.GroupID = "verbs"
 		root.AddCommand(cmd)
 	}
@@ -107,7 +107,7 @@ func BuildCommandTree(root *cobra.Command, gf *GlobalFlags, localFS fs.FS) {
 // buildVerbCommand builds a cobra command for a verb with one subcommand per
 // resource kind that declares it (plural name + singular + aliases).
 // Running the verb with no kind lists resources that support it.
-func buildVerbCommand(verb string, gf *GlobalFlags, localFS fs.FS) *cobra.Command {
+func buildVerbCommand(verb string, gf *GlobalFlags) *cobra.Command {
 	var declaringEntries []*registry.Entry
 	for _, e := range registry.AllEntries() {
 		if e.FindOperation(verb) != nil {
@@ -137,7 +137,7 @@ func buildVerbCommand(verb string, gf *GlobalFlags, localFS fs.FS) *cobra.Comman
 		// They are still fully routable: `whctl get apps -h` works correctly.
 		for _, kindName := range append([]string{info.Plural, info.Singular()}, info.Aliases...) {
 			kindName := kindName
-			sub := newKindCmd(verb, kindName, e, op, gf, localFS)
+			sub := newKindCmd(verb, kindName, e, op, gf)
 			sub.Hidden = true
 			verbCmd.AddCommand(sub)
 		}
@@ -148,7 +148,7 @@ func buildVerbCommand(verb string, gf *GlobalFlags, localFS fs.FS) *cobra.Comman
 
 // newKindCmd builds a single cobra subcommand for verb+kind under a specific name.
 func newKindCmd(verb, kindName string, e *registry.Entry, op *registry.OperationDef,
-	gf *GlobalFlags, localFS fs.FS) *cobra.Command {
+	gf *GlobalFlags) *cobra.Command {
 
 	info := e.Registration.Info
 
@@ -178,12 +178,12 @@ func newKindCmd(verb, kindName string, e *registry.Entry, op *registry.Operation
 					fmt.Errorf("<name> is required\nUsage: whctl %s %s", verb, use))
 			}
 
-			opts, err := collectOpts(cmd, gf, info.Plural, name, e, op, localFS)
+			opts, err := collectOpts(cmd, gf, info.Plural, name, e, op)
 			if err != nil {
 				return err
 			}
 
-			handler := e.Registration.Factory(opts.DataDir, localFS)
+			handler := e.Registration.Factory(opts.DataDir, opts.FS)
 			return op.Run(handler, opts)
 		},
 	}
@@ -239,10 +239,9 @@ func prependSpaces(lines []string) []string {
 
 // collectOpts assembles OperationOpts from parsed flags and config.
 func collectOpts(cmd *cobra.Command, gf *GlobalFlags,
-	kind, name string, entry *registry.Entry, op *registry.OperationDef,
-	localFS fs.FS) (registry.OperationOpts, error) {
+	kind, name string, entry *registry.Entry, op *registry.OperationDef) (registry.OperationOpts, error) {
 
-	dataDir, err := resolveDataDir(gf.Context, gf.Whconfig)
+	filesystem, dataDir, err := resolveBackend(gf.Context, gf.Whconfig)
 	if err != nil {
 		return registry.OperationOpts{}, exitErr(exitcode.Failure, fmt.Errorf("%s", err))
 	}
@@ -288,7 +287,7 @@ func collectOpts(cmd *cobra.Command, gf *GlobalFlags,
 
 	return registry.OperationOpts{
 		DataDir:       dataDir,
-		FS:            localFS,
+		FS:            filesystem,
 		Kind:          kind,
 		Name:          name,
 		Namespace:     namespace,
