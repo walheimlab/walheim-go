@@ -54,8 +54,23 @@ Global flags apply to every command. Set WHCONFIG env var to override config fil
 	root.PersistentFlags().StringVarP(&gf.Output, "output", "o", "table", "Output format: table|json")
 	root.PersistentFlags().BoolVarP(&gf.Quiet, "quiet", "q", false, "Bare output (one item per line, no headers)")
 
-	root.AddCommand(newVersionCmd())
-	root.AddCommand(newContextCmd(gf))
+	root.AddGroup(
+		&cobra.Group{ID: "verbs", Title: "Resource commands:"},
+		&cobra.Group{ID: "mgmt", Title: "Management:"},
+	)
+
+	versionCmd := newVersionCmd()
+	versionCmd.GroupID = "mgmt"
+	root.AddCommand(versionCmd)
+
+	contextCmd := newContextCmd(gf)
+	contextCmd.GroupID = "mgmt"
+	root.AddCommand(contextCmd)
+
+	actionsCmd := newActionsCmd()
+	actionsCmd.GroupID = "mgmt"
+	root.AddCommand(actionsCmd)
+
 	BuildCommandTree(root, gf)
 
 	return root
@@ -81,12 +96,14 @@ func BuildCommandTree(root *cobra.Command, gf *GlobalFlags) {
 	for _, verb := range registry.AllOperations() {
 		verb := verb // capture
 		cmd := buildVerbCommand(verb, gf, localFS)
+		cmd.GroupID = "verbs"
 		root.AddCommand(cmd)
 	}
 }
 
-// buildVerbCommand builds a single cobra command for a verb.
-// It collects all entries that declare the verb to merge their flags and examples.
+// buildVerbCommand builds a cobra command for a verb with one subcommand per
+// resource kind that declares it (plural name + singular + aliases).
+// Running the verb with no kind lists resources that support it.
 func buildVerbCommand(verb string, gf *GlobalFlags, localFS fs.FS) *cobra.Command {
 	var declaringEntries []*registry.Entry
 	for _, e := range registry.AllEntries() {
@@ -95,60 +112,126 @@ func buildVerbCommand(verb string, gf *GlobalFlags, localFS fs.FS) *cobra.Comman
 		}
 	}
 
-	cmd := &cobra.Command{
+	verbCmd := &cobra.Command{
 		Use:          verb + " <kind> [name]",
-		Short:        buildShort(verb, declaringEntries),
-		Example:      buildExamples(verb, declaringEntries),
-		Args:         cobra.RangeArgs(1, 2),
+		Short:        verbShort(verb),
+		Example:      buildVerbExamples(verb, declaringEntries),
 		SilenceUsage: true,
+		// No args expected at the verb level — kind is a subcommand.
+		// RunE fires only when no subcommand matches (i.e. bare "whctl get").
 		RunE: func(cmd *cobra.Command, args []string) error {
-			kind := args[0]
-			name := ""
-			if len(args) > 1 {
-				name = args[1]
-			}
+			return runListResourcesForVerb(verb, declaringEntries)
+		},
+	}
 
-			if err := validateResourceName(kind); err != nil {
-				return exitErr(exitcode.UsageError, err)
-			}
-			if name != "" {
+	for _, e := range declaringEntries {
+		e := e
+		op := e.FindOperation(verb)
+		info := e.Registration.Info
+
+		// All kind subcommands are hidden from the verb-level help so that
+		// `whctl get -h` stays generic and never mentions resource names.
+		// They are still fully routable: `whctl get apps -h` works correctly.
+		for _, kindName := range append([]string{info.Plural, info.Singular()}, info.Aliases...) {
+			kindName := kindName
+			sub := newKindCmd(verb, kindName, e, op, gf, localFS)
+			sub.Hidden = true
+			verbCmd.AddCommand(sub)
+		}
+	}
+
+	return verbCmd
+}
+
+// newKindCmd builds a single cobra subcommand for verb+kind under a specific name.
+func newKindCmd(verb, kindName string, e *registry.Entry, op *registry.OperationDef,
+	gf *GlobalFlags, localFS fs.FS) *cobra.Command {
+
+	info := e.Registration.Info
+
+	use := kindName
+	if op.RequiresName {
+		use = kindName + " <name>"
+	} else if !op.RequiresName && verb == "get" {
+		use = kindName + " [name]"
+	}
+
+	cmd := &cobra.Command{
+		Use:          use,
+		Short:        opShort(op),
+		Example:      strings.Join(prependSpaces(op.Examples), "\n"),
+		SilenceUsage: true,
+		Args:         cobra.RangeArgs(0, 1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			name := ""
+			if len(args) > 0 {
+				name = args[0]
 				if err := validateResourceName(name); err != nil {
 					return exitErr(exitcode.UsageError, err)
 				}
 			}
-
-			entry := registry.Get(kind)
-			if entry == nil {
+			if op.RequiresName && name == "" {
 				return exitErr(exitcode.UsageError,
-					fmt.Errorf("unknown kind %q — run 'whctl --help' to see available kinds", kind))
+					fmt.Errorf("<name> is required\nUsage: whctl %s %s", verb, use))
 			}
 
-			op := entry.FindOperation(verb)
-			if op == nil {
-				return exitErr(exitcode.UsageError,
-					fmt.Errorf("%s is not supported for %s", verb, kind))
-			}
-
-			opts, err := collectOpts(cmd, gf, kind, name, entry, op, localFS)
+			opts, err := collectOpts(cmd, gf, info.Plural, name, e, op, localFS)
 			if err != nil {
 				return err
 			}
 
-			handler := entry.Registration.Factory(opts.DataDir, localFS)
+			handler := e.Registration.Factory(opts.DataDir, localFS)
 			return op.Run(handler, opts)
 		},
 	}
 
-	// Universal flags on every verb command
+	// Universal flags
 	cmd.Flags().StringP("namespace", "n", "", "Target namespace")
 	cmd.Flags().BoolP("all-namespaces", "A", false, "All namespaces")
 	cmd.Flags().Bool("dry-run", false, "Print what would change without making any changes")
 	cmd.Flags().Bool("yes", false, "Skip confirmation prompts")
 
-	// Merge operation-specific flags from all resources declaring this verb
-	mergeOperationFlags(cmd, verb, declaringEntries)
+	// Operation-specific flags for this resource only
+	addOperationFlags(cmd, op)
 
 	return cmd
+}
+
+// addOperationFlags registers the flags declared by a single OperationDef onto cmd.
+func addOperationFlags(cmd *cobra.Command, op *registry.OperationDef) {
+	for _, fd := range op.Flags {
+		switch fd.Type {
+		case "string":
+			def, _ := fd.Default.(string)
+			if fd.Short != "" {
+				cmd.Flags().StringP(fd.Name, fd.Short, def, fd.Usage)
+			} else {
+				cmd.Flags().String(fd.Name, def, fd.Usage)
+			}
+		case "bool":
+			def, _ := fd.Default.(bool)
+			if fd.Short != "" {
+				cmd.Flags().BoolP(fd.Name, fd.Short, def, fd.Usage)
+			} else {
+				cmd.Flags().Bool(fd.Name, def, fd.Usage)
+			}
+		case "int":
+			def, _ := fd.Default.(int)
+			if fd.Short != "" {
+				cmd.Flags().IntP(fd.Name, fd.Short, def, fd.Usage)
+			} else {
+				cmd.Flags().Int(fd.Name, def, fd.Usage)
+			}
+		}
+	}
+}
+
+func prependSpaces(lines []string) []string {
+	out := make([]string, len(lines))
+	for i, l := range lines {
+		out[i] = "  " + l
+	}
+	return out
 }
 
 // collectOpts assembles OperationOpts from parsed flags and config.
@@ -215,97 +298,102 @@ func collectOpts(cmd *cobra.Command, gf *GlobalFlags,
 	}, nil
 }
 
-// mergeOperationFlags registers operation-specific flags from all resources
-// that declare this verb. Flags are deduplicated by name.
-func mergeOperationFlags(cmd *cobra.Command, verb string, entries []*registry.Entry) {
-	seen := make(map[string]bool)
 
-	for _, e := range entries {
-		op := e.FindOperation(verb)
-		if op == nil {
-			continue
-		}
-		for _, fd := range op.Flags {
-			if seen[fd.Name] {
-				continue
-			}
-			seen[fd.Name] = true
 
-			switch fd.Type {
-			case "string":
-				defaultStr := ""
-				if fd.Default != nil {
-					if s, ok := fd.Default.(string); ok {
-						defaultStr = s
-					}
-				}
-				if fd.Short != "" {
-					cmd.Flags().StringP(fd.Name, fd.Short, defaultStr, fd.Usage)
-				} else {
-					cmd.Flags().String(fd.Name, defaultStr, fd.Usage)
-				}
-			case "bool":
-				defaultBool := false
-				if fd.Default != nil {
-					if b, ok := fd.Default.(bool); ok {
-						defaultBool = b
-					}
-				}
-				if fd.Short != "" {
-					cmd.Flags().BoolP(fd.Name, fd.Short, defaultBool, fd.Usage)
-				} else {
-					cmd.Flags().Bool(fd.Name, defaultBool, fd.Usage)
-				}
-			case "int":
-				defaultInt := 0
-				if fd.Default != nil {
-					if i, ok := fd.Default.(int); ok {
-						defaultInt = i
-					}
-				}
-				if fd.Short != "" {
-					cmd.Flags().IntP(fd.Name, fd.Short, defaultInt, fd.Usage)
-				} else {
-					cmd.Flags().Int(fd.Name, defaultInt, fd.Usage)
-				}
-			}
-		}
-	}
+// verbDefaults holds the canonical one-line description for each known verb.
+// These are shown in the root command help and used as fallbacks wherever a
+// resource does not override the short description for that verb.
+// A resource's OperationDef.Short should only be non-empty when its behaviour
+// for that verb genuinely differs from the generic (e.g. "delete app" also
+// removes remote files; "describe namespace" does a live SSH probe).
+var verbDefaults = map[string]string{
+	"get":      "List or get resources",
+	"create":   "Create a resource",
+	"apply":    "Create or update a resource from a manifest file",
+	"delete":   "Delete a resource",
+	"describe": "Show detailed resource information",
+	"doctor":   "Check resources for issues",
+	"import":   "Import a resource from an external file",
+	"start":    "Start a resource",
+	"pause":    "Pause a resource",
+	"stop":     "Stop a resource",
+	"pull":     "Pull the latest images for a resource",
+	"logs":     "Print logs for a resource",
+	"exec":     "Execute a command in a resource",
 }
 
-// buildShort generates a one-line help string for a verb command.
-func buildShort(verb string, entries []*registry.Entry) string {
-	if len(entries) == 0 {
-		return strings.Title(verb) + " resources" //nolint:staticcheck
+// verbShort returns the canonical short description for a verb.
+// Falls back to title-casing the verb name if not in verbDefaults.
+func verbShort(verb string) string {
+	if s, ok := verbDefaults[verb]; ok {
+		return s
 	}
-
-	var kinds []string
-	for _, e := range entries {
-		kinds = append(kinds, e.Registration.Info.Plural)
-	}
-
-	// Use first declared short description
-	for _, e := range entries {
-		op := e.FindOperation(verb)
-		if op != nil && op.Short != "" {
-			return op.Short
-		}
-	}
-
-	return fmt.Sprintf("%s %s", verb, strings.Join(kinds, "|"))
+	return strings.ToUpper(verb[:1]) + verb[1:] + " a resource"
 }
 
-// buildExamples collects example strings from all resources declaring this verb.
-func buildExamples(verb string, entries []*registry.Entry) string {
-	var lines []string
+// opShort returns the effective short description for one operation on one resource.
+// The resource's own Short takes precedence; verbShort is the fallback.
+func opShort(op *registry.OperationDef) string {
+	if op.Short != "" {
+		return op.Short
+	}
+	return verbShort(op.Verb)
+}
+
+
+// buildVerbExamples generates the Examples block for a verb command.
+// It emits one line per resource that declares the verb, using the plural kind
+// name so the user can see exactly what to type for each resource.
+func buildVerbExamples(verb string, entries []*registry.Entry) string {
+	lines := make([]string, 0, len(entries))
 	for _, e := range entries {
-		op := e.FindOperation(verb)
-		if op == nil {
-			continue
-		}
-		for _, ex := range op.Examples {
-			lines = append(lines, "  "+ex)
-		}
+		lines = append(lines, "  whctl "+verb+" "+e.Registration.Info.Plural)
 	}
 	return strings.Join(lines, "\n")
+}
+
+// newActionsCmd returns the 'actions' command: lists all verbs a resource supports.
+func newActionsCmd() *cobra.Command {
+	return &cobra.Command{
+		Use:   "actions <kind>",
+		Short: "List all actions (verbs) available for a resource kind",
+		Example: `  whctl actions namespaces
+  whctl actions apps
+  whctl actions ns`,
+		Args:         cobra.ExactArgs(1),
+		SilenceUsage: true,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			kind := args[0]
+			if err := validateResourceName(kind); err != nil {
+				return exitErr(exitcode.UsageError, err)
+			}
+			entry := registry.Get(kind)
+			if entry == nil {
+				return exitErr(exitcode.UsageError,
+					fmt.Errorf("unknown kind %q — run 'whctl --help' to see available kinds", kind))
+			}
+			info := entry.Registration.Info
+			fmt.Printf("Actions for '%s':\n\n", info.Plural)
+			for _, op := range entry.Registration.Operations {
+				fmt.Printf("  %-16s  %s\n", op.Verb, opShort(&op))
+			}
+			fmt.Printf("\nRun 'whctl <action> %s --help' for usage details.\n", info.Plural)
+			return nil
+		},
+	}
+}
+
+// runListResourcesForVerb prints which resource kinds support a given verb,
+// with the per-kind short description of that operation.
+func runListResourcesForVerb(verb string, entries []*registry.Entry) error {
+	fmt.Printf("Resources that support '%s':\n\n", verb)
+	for _, e := range entries {
+		op := e.FindOperation(verb)
+		if op == nil {
+			continue
+		}
+		fmt.Printf("  %-16s  %s\n", e.Registration.Info.Plural, opShort(op))
+	}
+	fmt.Printf("\nRun 'whctl %s <kind> --help' for usage details.\n", verb)
+	return nil
 }

@@ -641,7 +641,7 @@ func registerNamespace() {
 		Operations: []registry.OperationDef{
 			{
 				Verb:         "get",
-				Short:        "List or retrieve namespaces",
+				Short:        "List namespaces or get a single namespace by name",
 				NSHandling:   registry.NSNone,
 				RequiresName: false,
 				Examples: []string{
@@ -655,7 +655,7 @@ func registerNamespace() {
 			},
 			{
 				Verb:         "create",
-				Short:        "Create a namespace",
+				Short:        "Create a new namespace with an SSH hostname",
 				NSHandling:   registry.NSNone,
 				RequiresName: true,
 				Flags: []registry.FlagDef{
@@ -693,6 +693,7 @@ func registerNamespace() {
 				RequiresName: true,
 				Examples: []string{
 					"whctl delete namespace staging --yes",
+					"whctl delete namespace staging --dry-run",
 				},
 				Run: func(h resource.Handler, opts registry.OperationOpts) error {
 					return h.(*Namespace).runDelete(opts)
@@ -700,11 +701,12 @@ func registerNamespace() {
 			},
 			{
 				Verb:         "describe",
-				Short:        "Show detailed namespace status including live SSH probe",
+				Short:        "Show namespace details with a live SSH and Docker probe",
 				NSHandling:   registry.NSNone,
 				RequiresName: true,
 				Examples: []string{
 					"whctl describe namespace production",
+					"whctl describe namespace production -o json",
 				},
 				Run: func(h resource.Handler, opts registry.OperationOpts) error {
 					return h.(*Namespace).runDescribe(opts)
@@ -712,7 +714,7 @@ func registerNamespace() {
 			},
 			{
 				Verb:         "doctor",
-				Short:        "Check namespaces for filesystem and manifest issues",
+				Short:        "Check namespace manifests and directory structure for issues",
 				NSHandling:   registry.NSNone,
 				RequiresName: false,
 				Examples: []string{
