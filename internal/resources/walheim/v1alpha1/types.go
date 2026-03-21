@@ -1,4 +1,4 @@
-// Package v1alpha1 contains all walheimlab.github.io/v1alpha1 resource kinds.
+// Package v1alpha1 contains all walheim/v1alpha1 resource kinds.
 package v1alpha1
 
 import (

@@ -4,9 +4,9 @@ import "strings"
 
 // KindInfo describes a resource type's identity and names.
 // Group + Version + Kind form the GVK, matching the Kubernetes convention.
-// APIVersion() returns "group/version" (e.g. "walheimlab.github.io/v1alpha1").
+// APIVersion() returns "group/version" (e.g. "walheim/v1alpha1").
 type KindInfo struct {
-	Group   string   // e.g. "walheimlab.github.io"
+	Group   string   // e.g. "walheim"
 	Version string   // e.g. "v1alpha1"
 	Kind    string   // e.g. "Namespace" (PascalCase, singular)
 	Plural  string   // e.g. "namespaces"

@@ -1,0 +1,249 @@
+package v1alpha1
+
+import (
+	"encoding/base64"
+	"fmt"
+	"path/filepath"
+	"regexp"
+	"sort"
+	"strings"
+
+	"gopkg.in/yaml.v3"
+
+	"github.com/walheimlab/walheim-go/internal/fs"
+)
+
+var varPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
+
+// generateCompose builds the final docker-compose.yml and writes it locally.
+// Path: <dataDir>/namespaces/<namespace>/apps/<name>/docker-compose.yml
+// NOTE: This function modifies m.Spec.Compose.Services in-place.
+func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, dataDir string) error {
+	// Make a working copy of services to avoid mutating the original manifest unexpectedly
+	// (we do mutate it, as documented in the plan, but let's be intentional).
+	services := m.Spec.Compose.Services
+	if services == nil {
+		return fmt.Errorf("spec.compose.services is empty")
+	}
+
+	// Ensure all service environment and label maps are initialized.
+	for svcName, svc := range services {
+		if svc.Environment.Values == nil {
+			svc.Environment.Values = make(map[string]string)
+		}
+		if svc.Labels.Values == nil {
+			svc.Labels.Values = make(map[string]string)
+		}
+		services[svcName] = svc
+	}
+
+	// Step 1 — Inject Walheim labels into every service.
+	for svcName, svc := range services {
+		// Strip old walheim.* keys
+		for k := range svc.Labels.Values {
+			if strings.HasPrefix(k, "walheim.") {
+				delete(svc.Labels.Values, k)
+			}
+		}
+		svc.Labels.Values["walheim.managed"] = "true"
+		svc.Labels.Values["walheim.namespace"] = namespace
+		svc.Labels.Values["walheim.app"] = name
+		services[svcName] = svc
+	}
+
+	// Audit tracking per service
+	// secretInjected[svcName][secretName] = []keys
+	secretInjected := map[string]map[string][]string{}
+	// configmapInjected[svcName][cmName] = []keys
+	configmapInjected := map[string]map[string][]string{}
+	// overrideInjected[svcName] = []keys
+	overrideInjected := map[string][]string{}
+
+	// Step 2 — Load secrets and configmaps for envFrom (lower precedence — only if key not present).
+	for _, entry := range m.Spec.EnvFrom {
+		var kvMap map[string]string
+		var sourceName string
+		var isSecret bool
+
+		if entry.SecretRef != nil {
+			var err error
+			kvMap, err = loadSecret(namespace, entry.SecretRef.Name, filesystem, dataDir)
+			if err != nil {
+				return fmt.Errorf("envFrom: %w", err)
+			}
+			sourceName = entry.SecretRef.Name
+			isSecret = true
+		} else if entry.ConfigMapRef != nil {
+			var err error
+			kvMap, err = loadConfigMap(namespace, entry.ConfigMapRef.Name, filesystem, dataDir)
+			if err != nil {
+				return fmt.Errorf("envFrom: %w", err)
+			}
+			sourceName = entry.ConfigMapRef.Name
+			isSecret = false
+		} else {
+			continue
+		}
+
+		targets := targetServices(services, entry.ServiceNames)
+		for _, svcName := range targets {
+			svc := services[svcName]
+			for k, v := range kvMap {
+				if _, exists := svc.Environment.Values[k]; !exists {
+					svc.Environment.Values[k] = v
+					// Track for audit
+					if isSecret {
+						if secretInjected[svcName] == nil {
+							secretInjected[svcName] = map[string][]string{}
+						}
+						secretInjected[svcName][sourceName] = append(secretInjected[svcName][sourceName], k)
+					} else {
+						if configmapInjected[svcName] == nil {
+							configmapInjected[svcName] = map[string][]string{}
+						}
+						configmapInjected[svcName][sourceName] = append(configmapInjected[svcName][sourceName], k)
+					}
+				}
+			}
+			services[svcName] = svc
+		}
+	}
+
+	// Step 3 — Inject env entries (higher precedence — always overwrite).
+	for _, entry := range m.Spec.Env {
+		targets := targetServices(services, entry.ServiceNames)
+		for _, svcName := range targets {
+			svc := services[svcName]
+			// Substitute ${VAR} in entry.Value using this service's current env
+			value := substituteVars(entry.Value, svc.Environment.Values)
+			svc.Environment.Values[entry.Name] = value
+			overrideInjected[svcName] = append(overrideInjected[svcName], entry.Name)
+			services[svcName] = svc
+		}
+	}
+
+	// Step 4 — Apply audit labels.
+	for svcName, svc := range services {
+		// walheim.injected-env.override
+		if keys, ok := overrideInjected[svcName]; ok && len(keys) > 0 {
+			sorted := sortedUnique(keys)
+			svc.Labels.Values["walheim.injected-env.override"] = strings.Join(sorted, ",")
+		}
+		// walheim.injected-env.secret.<name>
+		if smap, ok := secretInjected[svcName]; ok {
+			for secretName, keys := range smap {
+				sorted := sortedUnique(keys)
+				svc.Labels.Values["walheim.injected-env.secret."+secretName] = strings.Join(sorted, ",")
+			}
+		}
+		// walheim.injected-env.configmap.<name>
+		if cmap, ok := configmapInjected[svcName]; ok {
+			for cmName, keys := range cmap {
+				sorted := sortedUnique(keys)
+				svc.Labels.Values["walheim.injected-env.configmap."+cmName] = strings.Join(sorted, ",")
+			}
+		}
+		services[svcName] = svc
+	}
+
+	// Write back modified services
+	m.Spec.Compose.Services = services
+
+	// Step 5 — Marshal and write.
+	encoded, err := yaml.Marshal(m.Spec.Compose)
+	if err != nil {
+		return fmt.Errorf("marshal docker-compose: %w", err)
+	}
+
+	composePath := filepath.Join(dataDir, "namespaces", namespace, "apps", name, "docker-compose.yml")
+	if err := filesystem.WriteFile(composePath, encoded); err != nil {
+		return fmt.Errorf("write docker-compose.yml: %w", err)
+	}
+	return nil
+}
+
+// targetServices returns the list of service names to inject into.
+// If serviceNames is non-empty, only those; otherwise all services.
+func targetServices(services map[string]ComposeService, serviceNames []string) []string {
+	if len(serviceNames) > 0 {
+		return serviceNames
+	}
+	names := make([]string, 0, len(services))
+	for n := range services {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// substituteVars replaces ${VAR} patterns in s with values from env.
+// If a variable is not found in env, the literal ${VAR} is kept.
+func substituteVars(s string, env map[string]string) string {
+	return varPattern.ReplaceAllStringFunc(s, func(match string) string {
+		// match is like "${VAR_NAME}"
+		varName := match[2 : len(match)-1]
+		if val, ok := env[varName]; ok {
+			return val
+		}
+		return match
+	})
+}
+
+// sortedUnique returns sorted, deduplicated copy of keys.
+func sortedUnique(keys []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, k := range keys {
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+// loadSecret reads the .secret.yaml for the named secret in namespace.
+// Decodes Data (base64) and merges with StringData (plaintext).
+// StringData wins on key collision.
+func loadSecret(namespace, name string, filesystem fs.FS, dataDir string) (map[string]string, error) {
+	path := filepath.Join(dataDir, "namespaces", namespace, "secrets", name, ".secret.yaml")
+	data, err := filesystem.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("secret %q not found in namespace %q", name, namespace)
+	}
+	var sm SecretManifest
+	if err := yaml.Unmarshal(data, &sm); err != nil {
+		return nil, fmt.Errorf("parse secret %q: %w", name, err)
+	}
+	result := make(map[string]string, len(sm.Data)+len(sm.StringData))
+	for k, v := range sm.Data {
+		decoded, err := base64.StdEncoding.DecodeString(v)
+		if err != nil {
+			return nil, fmt.Errorf("secret %q key %q: base64 decode failed: %w", name, k, err)
+		}
+		result[k] = string(decoded)
+	}
+	for k, v := range sm.StringData { // stringData wins
+		result[k] = v
+	}
+	return result, nil
+}
+
+// loadConfigMap reads the .configmap.yaml for the named configmap in namespace.
+func loadConfigMap(namespace, name string, filesystem fs.FS, dataDir string) (map[string]string, error) {
+	path := filepath.Join(dataDir, "namespaces", namespace, "configmaps", name, ".configmap.yaml")
+	data, err := filesystem.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("configmap %q not found in namespace %q", name, namespace)
+	}
+	var cm ConfigMapManifest
+	if err := yaml.Unmarshal(data, &cm); err != nil {
+		return nil, fmt.Errorf("parse configmap %q: %w", name, err)
+	}
+	result := make(map[string]string, len(cm.Data))
+	for k, v := range cm.Data {
+		result[k] = v
+	}
+	return result, nil
+}
