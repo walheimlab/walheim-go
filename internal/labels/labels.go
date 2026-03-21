@@ -3,11 +3,11 @@ package labels
 import (
 	"fmt"
 	"regexp"
-	"sort"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/resource"
@@ -18,26 +18,32 @@ var validKeyRe = regexp.MustCompile(`^[a-zA-Z0-9._/\-]+$`)
 
 func validateKey(key string) error {
 	if !validKeyRe.MatchString(key) {
-		return fmt.Errorf("invalid label key %q: must match ^[a-zA-Z0-9._/-]+$", key)
+		return exitcode.New(exitcode.UsageError,
+			fmt.Errorf("invalid label key %q: must match ^[a-zA-Z0-9._/-]+$", key))
 	}
 	if strings.Contains(key, "..") {
-		return fmt.Errorf("invalid label key %q: must not contain '..' segments", key)
+		return exitcode.New(exitcode.UsageError,
+			fmt.Errorf("invalid label key %q: must not contain '..' segments", key))
 	}
 	return nil
 }
 
 // resolveManifestPath returns the path to the resource's manifest file.
+// Returns exitcode-wrapped errors for kind/scope problems so callers can
+// classify them without re-inspecting the message string.
 func resolveManifestPath(filesystem fs.FS, dataDir, kind, name, namespace string) (string, error) {
 	entry := registry.Get(kind)
 	if entry == nil {
-		return "", fmt.Errorf("unknown resource kind %q", kind)
+		return "", exitcode.New(exitcode.UsageError,
+			fmt.Errorf("unknown resource kind %q", kind))
 	}
 
 	reg := entry.Registration
 
 	if entry.IsCluster() {
 		if namespace != "" {
-			return "", fmt.Errorf("resource kind %q is cluster-scoped; do not pass --namespace", kind)
+			return "", exitcode.New(exitcode.UsageError,
+				fmt.Errorf("resource kind %q is cluster-scoped; do not pass --namespace", kind))
 		}
 		cb := &resource.ClusterBase{
 			DataDir:          dataDir,
@@ -49,7 +55,8 @@ func resolveManifestPath(filesystem fs.FS, dataDir, kind, name, namespace string
 	}
 
 	if namespace == "" {
-		return "", fmt.Errorf("resource kind %q is namespace-scoped; --namespace is required", kind)
+		return "", exitcode.New(exitcode.UsageError,
+			fmt.Errorf("resource kind %q is namespace-scoped; --namespace is required", kind))
 	}
 	nb := &resource.NamespacedBase{
 		DataDir:          dataDir,
@@ -60,115 +67,153 @@ func resolveManifestPath(filesystem fs.FS, dataDir, kind, name, namespace string
 	return nb.ManifestPath(namespace, name), nil
 }
 
-// Set applies label specs to a resource manifest file.
-// specs: ["key=value", "key2=value2", "removekey-"]
-// overwrite: if false, error on existing keys.
-func Set(filesystem fs.FS, dataDir, kind, name, namespace string, specs []string, overwrite bool) error {
-	manifestPath, err := resolveManifestPath(filesystem, dataDir, kind, name, namespace)
-	if err != nil {
-		return err
-	}
-
+// readManifestDoc reads and parses the manifest YAML document node.
+// Returns exitcode.NotFound when the file does not exist.
+func readManifestDoc(filesystem fs.FS, manifestPath string) (yaml.Node, error) {
 	data, err := filesystem.ReadFile(manifestPath)
 	if err != nil {
-		return fmt.Errorf("failed to read manifest: %w", err)
+		// Treat read errors as NotFound (file likely absent).
+		return yaml.Node{}, exitcode.New(exitcode.NotFound,
+			fmt.Errorf("manifest not found: %w", err))
 	}
-
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("failed to parse manifest: %w", err)
+		return yaml.Node{}, exitcode.New(exitcode.Failure,
+			fmt.Errorf("failed to parse manifest: %w", err))
+	}
+	return doc, nil
+}
+
+// Get reads and returns the labels map from a resource manifest.
+// Returns an empty (non-nil) map when metadata.labels is absent.
+func Get(filesystem fs.FS, dataDir, kind, name, namespace string) (map[string]string, error) {
+	manifestPath, err := resolveManifestPath(filesystem, dataDir, kind, name, namespace)
+	if err != nil {
+		return nil, err
+	}
+
+	doc, err := readManifestDoc(filesystem, manifestPath)
+	if err != nil {
+		return nil, err
+	}
+
+	labelsNode := findLabelsNode(&doc)
+	if labelsNode == nil {
+		return map[string]string{}, nil
+	}
+
+	result := make(map[string]string)
+	if err := labelsNode.Decode(&result); err != nil {
+		return nil, exitcode.New(exitcode.Failure,
+			fmt.Errorf("failed to decode labels: %w", err))
+	}
+	return result, nil
+}
+
+// SetTracked applies label specs to a resource manifest file and returns which
+// keys were set (changed/added) and which were removed.
+//
+// specs: ["key=value", "key2=value2", "removekey-"]
+// overwrite: if false, error on existing keys.
+//
+// All errors are wrapped with the appropriate exitcode so callers can classify
+// them without inspecting message strings.
+func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
+	specs []string, overwrite bool) (changed, removed []string, err error) {
+
+	manifestPath, err := resolveManifestPath(filesystem, dataDir, kind, name, namespace)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	doc, err := readManifestDoc(filesystem, manifestPath)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	labelsNode, err := ensureLabelsNode(&doc)
 	if err != nil {
-		return err
+		return nil, nil, exitcode.New(exitcode.Failure, err)
 	}
 
 	// Read existing labels from the node into a typed map.
 	existing := make(map[string]string)
 	if err := labelsNode.Decode(&existing); err != nil {
-		return fmt.Errorf("failed to decode labels: %w", err)
+		return nil, nil, exitcode.New(exitcode.Failure,
+			fmt.Errorf("failed to decode labels: %w", err))
 	}
 
 	for _, spec := range specs {
 		if strings.HasSuffix(spec, "-") {
 			key := strings.TrimSuffix(spec, "-")
 			if err := validateKey(key); err != nil {
-				return err
+				return nil, nil, err
 			}
-			delete(existing, key)
+			if _, exists := existing[key]; exists {
+				delete(existing, key)
+				removed = append(removed, key)
+			}
+			// Silently skip removal of non-existent keys (matches Ruby behaviour).
 		} else if idx := strings.IndexByte(spec, '='); idx >= 0 {
 			key, value := spec[:idx], spec[idx+1:]
 			if err := validateKey(key); err != nil {
-				return err
+				return nil, nil, err
 			}
 			if !overwrite {
 				if _, exists := existing[key]; exists {
-					return fmt.Errorf("label %q already exists; use --overwrite to replace", key)
+					return nil, nil, exitcode.New(exitcode.Conflict,
+						fmt.Errorf("label %q already exists; use --overwrite to replace", key))
 				}
 			}
 			existing[key] = value
+			changed = append(changed, key)
 		} else {
-			return fmt.Errorf("invalid label spec %q: must be key=value or key-", spec)
+			return nil, nil, exitcode.New(exitcode.UsageError,
+				fmt.Errorf("invalid label spec %q: must be key=value or key-", spec))
 		}
 	}
 
 	// Write the updated map[string]string back into the node.
 	updated, err := yaml.Marshal(existing)
 	if err != nil {
-		return fmt.Errorf("failed to marshal labels: %w", err)
+		return nil, nil, exitcode.New(exitcode.Failure,
+			fmt.Errorf("failed to marshal labels: %w", err))
 	}
 	var updatedNode yaml.Node
 	if err := yaml.Unmarshal(updated, &updatedNode); err != nil {
-		return fmt.Errorf("failed to build labels node: %w", err)
+		return nil, nil, exitcode.New(exitcode.Failure,
+			fmt.Errorf("failed to build labels node: %w", err))
 	}
 	// updatedNode is a document node; its Content[0] is the mapping node.
 	*labelsNode = *updatedNode.Content[0]
 
 	encoded, err := yaml.Marshal(&doc)
 	if err != nil {
-		return fmt.Errorf("failed to marshal manifest: %w", err)
+		return nil, nil, exitcode.New(exitcode.Failure,
+			fmt.Errorf("failed to marshal manifest: %w", err))
 	}
-	return filesystem.WriteFile(manifestPath, encoded)
+	if err := filesystem.WriteFile(manifestPath, encoded); err != nil {
+		return nil, nil, exitcode.New(exitcode.Failure,
+			fmt.Errorf("failed to write manifest: %w", err))
+	}
+
+	// Ensure slices are non-nil for clean JSON output.
+	if changed == nil {
+		changed = []string{}
+	}
+	if removed == nil {
+		removed = []string{}
+	}
+	return changed, removed, nil
 }
 
-// List prints all labels on a resource in "key=value" format, one per line.
-func List(filesystem fs.FS, dataDir, kind, name, namespace string) error {
-	manifestPath, err := resolveManifestPath(filesystem, dataDir, kind, name, namespace)
-	if err != nil {
-		return err
-	}
-
-	data, err := filesystem.ReadFile(manifestPath)
-	if err != nil {
-		return fmt.Errorf("failed to read manifest: %w", err)
-	}
-
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
-		return fmt.Errorf("failed to parse manifest: %w", err)
-	}
-
-	labelsNode := findLabelsNode(&doc)
-	if labelsNode == nil {
-		return nil // no labels
-	}
-
-	var labels map[string]string
-	if err := labelsNode.Decode(&labels); err != nil {
-		return fmt.Errorf("failed to decode labels: %w", err)
-	}
-
-	keys := make([]string, 0, len(labels))
-	for k := range labels {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	for _, k := range keys {
-		fmt.Printf("%s=%s\n", k, labels[k])
-	}
-	return nil
+// Set applies label specs to a resource manifest file.
+// specs: ["key=value", "key2=value2", "removekey-"]
+// overwrite: if false, error on existing keys.
+// This is a thin wrapper over SetTracked for callers that don't need tracking.
+func Set(filesystem fs.FS, dataDir, kind, name, namespace string, specs []string, overwrite bool) error {
+	_, _, err := SetTracked(filesystem, dataDir, kind, name, namespace, specs, overwrite)
+	return err
 }
 
 // ensureLabelsNode navigates to metadata.labels in the YAML document node,

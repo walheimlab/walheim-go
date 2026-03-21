@@ -38,6 +38,7 @@ func buildRoot() *cobra.Command {
 	v1alpha1.Register()
 
 	gf := &GlobalFlags{}
+	localFS := fs.NewLocalFS()
 
 	root := &cobra.Command{
 		Use:   "whctl",
@@ -71,7 +72,11 @@ Global flags apply to every command. Set WHCONFIG env var to override config fil
 	actionsCmd.GroupID = "mgmt"
 	root.AddCommand(actionsCmd)
 
-	BuildCommandTree(root, gf)
+	labelCmd := newLabelCmd(gf, localFS)
+	labelCmd.GroupID = "mgmt"
+	root.AddCommand(labelCmd)
+
+	BuildCommandTree(root, gf, localFS)
 
 	return root
 }
@@ -90,9 +95,7 @@ func newVersionCmd() *cobra.Command {
 
 // BuildCommandTree generates one cobra command per unique verb across all
 // registered resources, then adds it to root.
-func BuildCommandTree(root *cobra.Command, gf *GlobalFlags) {
-	localFS := fs.NewLocalFS()
-
+func BuildCommandTree(root *cobra.Command, gf *GlobalFlags, localFS fs.FS) {
 	for _, verb := range registry.AllOperations() {
 		verb := verb // capture
 		cmd := buildVerbCommand(verb, gf, localFS)
