@@ -322,6 +322,7 @@ var verbDefaults = map[string]string{
 	"pull":     "Pull the latest images for a resource",
 	"logs":     "Print logs for a resource",
 	"exec":     "Execute a command in a resource",
+	"run":      "Run a job on its target host",
 }
 
 // verbShort returns the canonical short description for a verb.

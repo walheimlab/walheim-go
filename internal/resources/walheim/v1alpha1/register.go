@@ -8,4 +8,5 @@ func Register() {
 	registerSecret()
 	registerConfigMap()
 	registerDaemonSet()
+	registerJob()
 }

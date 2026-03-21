@@ -249,6 +249,27 @@ func (s *LabelSelector) Matches(labels map[string]string) bool {
 	return true
 }
 
+// ── Job ───────────────────────────────────────────────────────────────────────
+
+// JobManifest is the typed representation of a .job.yaml file.
+type JobManifest struct {
+	APIVersion string           `yaml:"apiVersion"`
+	Kind       string           `yaml:"kind"`
+	Metadata   ResourceMetadata `yaml:"metadata"`
+	Spec       JobSpec          `yaml:"spec"`
+}
+
+// JobSpec holds the Job-specific fields.
+type JobSpec struct {
+	// Image is the container image to run.
+	Image string `yaml:"image"`
+	// Command overrides the container entrypoint + args.
+	// Empty means the image's default CMD is used.
+	Command []string       `yaml:"command,omitempty"`
+	EnvFrom []EnvFromEntry `yaml:"envFrom,omitempty"`
+	Env     []EnvEntry     `yaml:"env,omitempty"`
+}
+
 // ── Secret & ConfigMap (on-disk manifest structs) ─────────────────────────────
 
 // SecretManifest is the typed representation of a .secret.yaml file.
