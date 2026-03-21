@@ -11,9 +11,8 @@ import (
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/version"
 
-	// Trigger resource registrations
-	_ "github.com/walheimlab/walheim-go/internal/resources/apps"
-	_ "github.com/walheimlab/walheim-go/internal/resources/namespaces"
+	// Trigger resource registrations — one import per API group/version
+	_ "github.com/walheimlab/walheim-go/internal/resources/walheimlab.github.io/v1alpha1"
 )
 
 // GlobalFlags holds the persistent flags declared on the root command.
@@ -173,7 +172,7 @@ func collectOpts(cmd *cobra.Command, gf *GlobalFlags,
 			if namespace == "" {
 				return registry.OperationOpts{}, exitErr(exitcode.UsageError,
 					fmt.Errorf("-n <namespace> is required\nUsage: whctl %s %s <name> -n <namespace>",
-						op.Verb, entry.Registration.Info.Singular))
+						op.Verb, entry.Registration.Info.Singular()))
 			}
 		case registry.NSOptionalAll:
 			if namespace == "" && !allNS {

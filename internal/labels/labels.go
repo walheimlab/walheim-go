@@ -45,7 +45,7 @@ func resolveManifestPath(filesystem fs.FS, dataDir, kind, name, namespace string
 			DataDir:          dataDir,
 			FS:               filesystem,
 			Info:             reg.Info,
-			ManifestFilename: manifestFilenameFor(reg.Info.Singular),
+			ManifestFilename: manifestFilenameFor(reg.Info.Singular()),
 		}
 		return cb.ManifestPath(name), nil
 	}
@@ -58,7 +58,7 @@ func resolveManifestPath(filesystem fs.FS, dataDir, kind, name, namespace string
 		DataDir:          dataDir,
 		FS:               filesystem,
 		Info:             reg.Info,
-		ManifestFilename: manifestFilenameFor(reg.Info.Singular),
+		ManifestFilename: manifestFilenameFor(reg.Info.Singular()),
 	}
 	return nb.ManifestPath(namespace, name), nil
 }

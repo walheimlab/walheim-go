@@ -164,7 +164,7 @@ func Register(r Registration) {
 	sort.Strings(allPlural)
 
 	singularEntry := &Entry{Registration: r, Visible: false}
-	byName[r.Info.Singular] = singularEntry
+	byName[r.Info.Singular()] = singularEntry
 
 	for _, alias := range r.Info.Aliases {
 		aliasEntry := &Entry{Registration: r, Visible: false}
