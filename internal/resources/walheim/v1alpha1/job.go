@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -242,7 +243,7 @@ func buildDockerRunCmd(ns, name string, spec JobSpec, detach bool, filesystem fs
 		return "", err
 	}
 
-	containerName := fmt.Sprintf("walheim-job-%s-%d", name, time.Now().UnixMilli())
+	containerName := fmt.Sprintf("walheim-job-%s-%s", name, strconv.FormatInt(time.Now().UnixMilli(), 36))
 
 	var parts []string
 	parts = append(parts, "docker", "run")
