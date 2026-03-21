@@ -11,8 +11,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/version"
 
-	// Trigger resource registrations — one import per API group/version
-	_ "github.com/walheimlab/walheim-go/internal/resources/walheimlab.github.io/v1alpha1"
+	v1alpha1 "github.com/walheimlab/walheim-go/internal/resources/walheimlab.github.io/v1alpha1"
 )
 
 // GlobalFlags holds the persistent flags declared on the root command.
@@ -36,6 +35,8 @@ func main() {
 }
 
 func buildRoot() *cobra.Command {
+	v1alpha1.Register()
+
 	gf := &GlobalFlags{}
 
 	root := &cobra.Command{

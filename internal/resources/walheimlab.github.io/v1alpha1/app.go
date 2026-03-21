@@ -39,7 +39,7 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 	return nil
 }
 
-func init() {
+func registerApp() {
 	registry.Register(registry.Registration{
 		Info:  appKind,
 		Scope: registry.NamespaceScoped,

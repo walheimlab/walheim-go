@@ -549,9 +549,9 @@ func namespaceUsageInfo(client *ssh.Client) *namespaceUsage {
 	return &namespaceUsage{Disk: diskStr, Containers: ctStr}
 }
 
-// ── init() registration ───────────────────────────────────────────────────────
+// ── Registration ─────────────────────────────────────────────────────────────
 
-func init() {
+func registerNamespace() {
 	registry.Register(registry.Registration{
 		Info:  namespaceKind,
 		Scope: registry.ClusterScoped,
