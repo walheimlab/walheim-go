@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/walheimlab/walheim-go/internal/exitcode"
-	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/version"
 
@@ -38,7 +37,6 @@ func buildRoot() *cobra.Command {
 	v1alpha1.Register()
 
 	gf := &GlobalFlags{}
-	localFS := fs.NewLocalFS()
 
 	root := &cobra.Command{
 		Use:   "whctl",
@@ -72,7 +70,7 @@ Global flags apply to every command. Set WHCONFIG env var to override config fil
 	actionsCmd.GroupID = "mgmt"
 	root.AddCommand(actionsCmd)
 
-	labelCmd := newLabelCmd(gf, localFS)
+	labelCmd := newLabelCmd(gf)
 	labelCmd.GroupID = "mgmt"
 	root.AddCommand(labelCmd)
 

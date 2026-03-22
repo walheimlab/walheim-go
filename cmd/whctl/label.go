@@ -14,7 +14,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/output"
 )
 
-func newLabelCmd(gf *GlobalFlags, localFS fs.FS) *cobra.Command {
+func newLabelCmd(gf *GlobalFlags) *cobra.Command {
 	var namespace string
 	var overwrite bool
 	var list bool
@@ -58,15 +58,15 @@ Use --list to print all current labels without modifying them.`,
 				return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 			}
 
-			dataDir, err := resolveDataDir(gf.Context, gf.Whconfig)
+			backend, dataDir, err := resolveBackend(gf.Context, gf.Whconfig)
 			if err != nil {
 				return exitErr(exitcode.Failure, err)
 			}
 
 			if list {
-				return runLabelList(localFS, dataDir, kind, name, namespace, jsonMode)
+				return runLabelList(backend, dataDir, kind, name, namespace, jsonMode)
 			}
-			return runLabelSet(localFS, dataDir, kind, name, namespace, specs, overwrite, dryRun, jsonMode)
+			return runLabelSet(backend, dataDir, kind, name, namespace, specs, overwrite, dryRun, jsonMode)
 		},
 	}
 
