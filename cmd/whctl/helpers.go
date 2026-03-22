@@ -1,13 +1,8 @@
 package main
 
 import (
-	"bufio"
 	"fmt"
-	"os"
 	"regexp"
-	"strings"
-
-	"golang.org/x/term"
 
 	"github.com/walheimlab/walheim-go/internal/config"
 	"github.com/walheimlab/walheim-go/internal/exitcode"
@@ -34,46 +29,6 @@ func resolveBackend(contextFlag, whconfigFlag string) (fs.FS, string, error) {
 	}
 
 	return filesystem, dataDir, nil
-}
-
-// resolveDataDir loads config and returns the active context's dataDir.
-// contextFlag: if non-empty, overrides the active context name.
-// whconfigFlag: if non-empty, overrides the config file path.
-func resolveDataDir(contextFlag, whconfigFlag string) (string, error) {
-	_, dataDir, err := resolveBackend(contextFlag, whconfigFlag)
-	return dataDir, err
-}
-
-// isTTY returns true if stdin is connected to a terminal.
-func isTTY() bool {
-	return term.IsTerminal(int(os.Stdin.Fd()))
-}
-
-// promptConfirm asks "y/N" if yes is false and stdin is a TTY.
-// If stdin is not a TTY and yes is false, returns an error with --yes hint.
-func promptConfirm(yes bool, prompt string) error {
-	if yes {
-		return nil
-	}
-
-	if !isTTY() {
-		return exitErr(exitcode.UsageError,
-			fmt.Errorf("stdin is not a TTY; pass --yes to confirm destructive operations"))
-	}
-
-	fmt.Fprintf(os.Stderr, "%s [y/N] ", prompt)
-	reader := bufio.NewReader(os.Stdin)
-	line, err := reader.ReadString('\n')
-	if err != nil {
-		return fmt.Errorf("failed to read confirmation: %w", err)
-	}
-
-	answer := strings.TrimSpace(strings.ToLower(line))
-	if answer != "y" && answer != "yes" {
-		return fmt.Errorf("aborted")
-	}
-
-	return nil
 }
 
 // validNameRe allows alphanumeric, hyphen, underscore, dot.

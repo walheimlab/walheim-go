@@ -68,13 +68,13 @@ func newContextListCmd(gf *GlobalFlags) *cobra.Command {
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-			fmt.Fprintln(w, "ACTIVE\tNAME\tLOCATION")
+			_, _ = fmt.Fprintln(w, "ACTIVE\tNAME\tLOCATION")
 			for _, v := range views {
 				active := " "
 				if v.Active {
 					active = "*"
 				}
-				fmt.Fprintf(w, "%s\t%s\t%s\n", active, v.Name, v.Location)
+				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", active, v.Name, v.Location)
 			}
 			return w.Flush()
 		},

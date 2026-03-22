@@ -103,13 +103,13 @@ func (r *Report) PrintHuman(quiet bool) {
 
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 	if !quiet {
-		fmt.Fprintln(w, "SEVERITY\tRESOURCE\tCHECK\tMESSAGE")
+		_, _ = fmt.Fprintln(w, "SEVERITY\tRESOURCE\tCHECK\tMESSAGE")
 	}
 	for _, f := range r.findings {
-		fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
+		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			strings.ToUpper(string(f.Severity)), f.Resource, f.Check, f.Message)
 	}
-	w.Flush()
+	_ = w.Flush()
 
 	if !quiet {
 		errors, warnings, infos := r.Counts()

@@ -180,17 +180,17 @@ func (c *Config) Save() error {
 	tmpPath := tmpFile.Name()
 
 	if _, err := tmpFile.Write(data); err != nil {
-		tmpFile.Close()
-		os.Remove(tmpPath)
+		_ = tmpFile.Close()
+		_ = os.Remove(tmpPath)
 		return &ConfigError{
 			message: fmt.Sprintf("failed to write temp file: %v", err),
 		}
 	}
-	tmpFile.Close()
+	_ = tmpFile.Close()
 
 	// Atomic rename
 	if err := os.Rename(tmpPath, c.path); err != nil {
-		os.Remove(tmpPath)
+		_ = os.Remove(tmpPath)
 		return &ConfigError{
 			message: fmt.Sprintf("failed to save config: %v", err),
 		}

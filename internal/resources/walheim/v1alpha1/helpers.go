@@ -48,7 +48,7 @@ func promptConfirm(yes bool, prompt string) error {
 	}
 	fmt.Fprintf(os.Stderr, "%s [y/N] ", prompt)
 	var answer string
-	fmt.Fscan(os.Stdin, &answer)
+	_, _ = fmt.Fscan(os.Stdin, &answer)
 	if strings.ToLower(strings.TrimSpace(answer)) != "y" {
 		return fmt.Errorf("aborted")
 	}

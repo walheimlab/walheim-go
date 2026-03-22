@@ -110,10 +110,10 @@ func PrintEmpty(kind, namespace string, jsonMode, quiet bool) {
 // printListTable renders items as a tab-separated table with headers.
 func printListTable(items []resource.ResourceMeta, columns []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-	defer w.Flush()
+	defer func() { _ = w.Flush() }()
 
 	// Print header
-	fmt.Fprintln(w, strings.Join(columns, "\t"))
+	_, _ = fmt.Fprintln(w, strings.Join(columns, "\t"))
 
 	// Print rows
 	for _, item := range items {
@@ -129,7 +129,7 @@ func printListTable(items []resource.ResourceMeta, columns []string) error {
 				row[i] = lookupSummary(item.Summary, col)
 			}
 		}
-		fmt.Fprintln(w, strings.Join(row, "\t"))
+		_, _ = fmt.Fprintln(w, strings.Join(row, "\t"))
 	}
 
 	return nil

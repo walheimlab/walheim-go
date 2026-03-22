@@ -119,7 +119,7 @@ func (s *S3FS) ReadFile(p string) ([]byte, error) {
 		}
 		return nil, fmt.Errorf("S3 GetObject %s: %w", p, err)
 	}
-	defer out.Body.Close()
+	defer func() { _ = out.Body.Close() }()
 	return io.ReadAll(out.Body)
 }
 

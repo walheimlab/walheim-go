@@ -44,13 +44,13 @@ func (s *Syncer) Sync(filesystem wfs.FS, localRoot, remoteHost, remoteDir string
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start ssh sftp: %w", err)
 	}
-	defer cmd.Wait()
+	defer func() { _ = cmd.Wait() }()
 
 	client, err := sftp.NewClientPipe(stdout, stdin)
 	if err != nil {
 		return fmt.Errorf("sftp client: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	if err := client.MkdirAll(remoteDir); err != nil {
 		return fmt.Errorf("mkdir remote %s: %w", remoteDir, err)
@@ -92,7 +92,7 @@ func upload(client *sftp.Client, filesystem wfs.FS, localPath, remotePath string
 				return fmt.Errorf("create remote %s: %w", remoteEntry, err)
 			}
 			_, writeErr := f.Write(data)
-			f.Close()
+			_ = f.Close()
 			if writeErr != nil {
 				return fmt.Errorf("write remote %s: %w", remoteEntry, writeErr)
 			}
