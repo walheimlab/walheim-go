@@ -1,5 +1,7 @@
 # walheim-go
 
+[![codecov](https://codecov.io/gh/walheimlab/walheim-go/graph/badge.svg)](https://codecov.io/gh/walheimlab/walheim-go)
+
 `whctl` is a kubectl-style CLI for managing Docker Compose apps across physical homelab machines over SSH. No scheduler, no control plane — just SSH, rsync, and `docker compose up`.
 
 ## Install
