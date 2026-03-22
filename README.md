@@ -2,7 +2,7 @@
 
 [![codecov](https://codecov.io/gh/walheimlab/walheim-go/graph/badge.svg)](https://codecov.io/gh/walheimlab/walheim-go)
 
-`whctl` is a kubectl-style CLI for managing Docker Compose apps across physical homelab machines over SSH. No scheduler, no control plane — just SSH, rsync, and `docker compose up`.
+`whctl` is a kubectl-style CLI for managing Docker Compose apps across physical homelab machines over SSH. No scheduler, no control plane — just SSH, rsync, and `docker compose up`. Manifests are stored on a local filesystem or any S3-compatible object store (Cloudflare R2, DigitalOcean Spaces, MinIO, etc.).
 
 ## Install
 
@@ -155,7 +155,7 @@ whctl context use remote
         └── configmaps/app-config/.configmap.yaml
 ```
 
-The data directory is meant to be a Git repo. Generated `docker-compose.yml` files should be in `.gitignore`.
+The data directory can be a local path (suitable as a Git repo) or an S3-compatible bucket — configured per context. Generated `docker-compose.yml` files should be in `.gitignore` when using a local Git repo.
 
 ## Labels
 
