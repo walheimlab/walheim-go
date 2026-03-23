@@ -21,10 +21,12 @@ func validateKey(key string) error {
 		return exitcode.New(exitcode.UsageError,
 			fmt.Errorf("invalid label key %q: must match ^[a-zA-Z0-9._/-]+$", key))
 	}
+
 	if strings.Contains(key, "..") {
 		return exitcode.New(exitcode.UsageError,
 			fmt.Errorf("invalid label key %q: must not contain '..' segments", key))
 	}
+
 	return nil
 }
 
@@ -45,12 +47,14 @@ func resolveManifestPath(filesystem fs.FS, dataDir, kind, name, namespace string
 			return "", exitcode.New(exitcode.UsageError,
 				fmt.Errorf("resource kind %q is cluster-scoped; do not pass --namespace", kind))
 		}
+
 		cb := &resource.ClusterBase{
 			DataDir:          dataDir,
 			FS:               filesystem,
 			Info:             reg.Info,
 			ManifestFilename: "." + reg.Info.Singular() + ".yaml",
 		}
+
 		return cb.ManifestPath(name), nil
 	}
 
@@ -58,12 +62,14 @@ func resolveManifestPath(filesystem fs.FS, dataDir, kind, name, namespace string
 		return "", exitcode.New(exitcode.UsageError,
 			fmt.Errorf("resource kind %q is namespace-scoped; --namespace is required", kind))
 	}
+
 	nb := &resource.NamespacedBase{
 		DataDir:          dataDir,
 		FS:               filesystem,
 		Info:             reg.Info,
 		ManifestFilename: "." + reg.Info.Singular() + ".yaml",
 	}
+
 	return nb.ManifestPath(namespace, name), nil
 }
 
@@ -76,11 +82,13 @@ func readManifestDoc(filesystem fs.FS, manifestPath string) (yaml.Node, error) {
 		return yaml.Node{}, exitcode.New(exitcode.NotFound,
 			fmt.Errorf("manifest not found: %w", err))
 	}
+
 	var doc yaml.Node
 	if err := yaml.Unmarshal(data, &doc); err != nil {
 		return yaml.Node{}, exitcode.New(exitcode.Failure,
 			fmt.Errorf("failed to parse manifest: %w", err))
 	}
+
 	return doc, nil
 }
 
@@ -107,6 +115,7 @@ func Get(filesystem fs.FS, dataDir, kind, name, namespace string) (map[string]st
 		return nil, exitcode.New(exitcode.Failure,
 			fmt.Errorf("failed to decode labels: %w", err))
 	}
+
 	return result, nil
 }
 
@@ -120,7 +129,6 @@ func Get(filesystem fs.FS, dataDir, kind, name, namespace string) (map[string]st
 // them without inspecting message strings.
 func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 	specs []string, overwrite bool) (changed, removed []string, err error) {
-
 	manifestPath, err := resolveManifestPath(filesystem, dataDir, kind, name, namespace)
 	if err != nil {
 		return nil, nil, err
@@ -149,6 +157,7 @@ func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 			if err := validateKey(key); err != nil {
 				return nil, nil, err
 			}
+
 			if _, exists := existing[key]; exists {
 				delete(existing, key)
 				removed = append(removed, key)
@@ -159,12 +168,14 @@ func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 			if err := validateKey(key); err != nil {
 				return nil, nil, err
 			}
+
 			if !overwrite {
 				if _, exists := existing[key]; exists {
 					return nil, nil, exitcode.New(exitcode.Conflict,
 						fmt.Errorf("label %q already exists; use --overwrite to replace", key))
 				}
 			}
+
 			existing[key] = value
 			changed = append(changed, key)
 		} else {
@@ -179,6 +190,7 @@ func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 		return nil, nil, exitcode.New(exitcode.Failure,
 			fmt.Errorf("failed to marshal labels: %w", err))
 	}
+
 	var updatedNode yaml.Node
 	if err := yaml.Unmarshal(updated, &updatedNode); err != nil {
 		return nil, nil, exitcode.New(exitcode.Failure,
@@ -192,6 +204,7 @@ func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 		return nil, nil, exitcode.New(exitcode.Failure,
 			fmt.Errorf("failed to marshal manifest: %w", err))
 	}
+
 	if err := filesystem.WriteFile(manifestPath, encoded); err != nil {
 		return nil, nil, exitcode.New(exitcode.Failure,
 			fmt.Errorf("failed to write manifest: %w", err))
@@ -201,9 +214,11 @@ func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 	if changed == nil {
 		changed = []string{}
 	}
+
 	if removed == nil {
 		removed = []string{}
 	}
+
 	return changed, removed, nil
 }
 
@@ -252,10 +267,12 @@ func findLabelsNode(doc *yaml.Node) *yaml.Node {
 	if root == nil {
 		return nil
 	}
+
 	meta := mappingValue(root, "metadata")
 	if meta == nil {
 		return nil
 	}
+
 	return mappingValue(meta, "labels")
 }
 
@@ -264,6 +281,7 @@ func docRoot(doc *yaml.Node) *yaml.Node {
 	if doc.Kind == yaml.DocumentNode && len(doc.Content) > 0 {
 		return doc.Content[0]
 	}
+
 	return doc
 }
 
@@ -273,10 +291,12 @@ func mappingValue(node *yaml.Node, key string) *yaml.Node {
 	if node.Kind != yaml.MappingNode {
 		return nil
 	}
+
 	for i := 0; i+1 < len(node.Content); i += 2 {
 		if node.Content[i].Value == key {
 			return node.Content[i+1]
 		}
 	}
+
 	return nil
 }

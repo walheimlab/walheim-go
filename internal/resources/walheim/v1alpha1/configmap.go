@@ -54,10 +54,12 @@ func (c *ConfigMap) parseManifest(namespace, name string) (*ConfigMapManifest, e
 	if err != nil {
 		return nil, err
 	}
+
 	var m ConfigMapManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse configmap %q in namespace %q: %w", name, namespace, err)
 	}
+
 	return &m, nil
 }
 
@@ -67,7 +69,9 @@ func configMapKeys(m *ConfigMapManifest) string {
 	for k := range m.Data {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
+
 	return strings.Join(keys, ", ")
 }
 
@@ -88,14 +92,17 @@ func (c *ConfigMap) getOne(namespace, name string) (resource.ResourceMeta, error
 	if err != nil {
 		return resource.ResourceMeta{}, err
 	}
+
 	if !exists {
 		return resource.ResourceMeta{},
 			exitcode.New(exitcode.NotFound, fmt.Errorf("configmap %q not found in namespace %q", name, namespace))
 	}
+
 	m, err := c.parseManifest(namespace, name)
 	if err != nil {
 		return resource.ResourceMeta{}, err
 	}
+
 	return configMapToMeta(namespace, name, m), nil
 }
 
@@ -104,6 +111,7 @@ func (c *ConfigMap) listNamespace(namespace string) ([]resource.ResourceMeta, er
 	if err != nil {
 		return nil, err
 	}
+
 	items := make([]resource.ResourceMeta, 0, len(names))
 	for _, name := range names {
 		m, err := c.parseManifest(namespace, name)
@@ -111,8 +119,10 @@ func (c *ConfigMap) listNamespace(namespace string) ([]resource.ResourceMeta, er
 			output.Warnf("skipping configmap %q in namespace %q: %v", name, namespace, err)
 			continue
 		}
+
 		items = append(items, configMapToMeta(namespace, name, m))
 	}
+
 	return items, nil
 }
 
@@ -122,15 +132,19 @@ func validateConfigMapManifest(m *ConfigMapManifest, namespace, name string) err
 	if m.APIVersion != configMapKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", configMapKind.APIVersion(), m.APIVersion)
 	}
+
 	if m.Kind != configMapKind.Kind {
 		return fmt.Errorf("invalid kind: expected %q, got %q", configMapKind.Kind, m.Kind)
 	}
+
 	if m.Metadata.Name != name {
 		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
 	}
+
 	if m.Metadata.Namespace != namespace {
 		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Metadata.Namespace, namespace)
 	}
+
 	return nil
 }
 
@@ -144,8 +158,10 @@ func (c *ConfigMap) runGet(opts registry.OperationOpts) error {
 		if err != nil {
 			output.Errorf(jsonMode, "NotFound",
 				fmt.Sprintf("configmap %q not found in namespace %q", opts.Name, opts.Namespace), "", nil, false)
+
 			return err
 		}
+
 		return output.PrintOne(meta, jsonMode)
 	}
 
@@ -154,18 +170,23 @@ func (c *ConfigMap) runGet(opts registry.OperationOpts) error {
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		var items []resource.ResourceMeta
+
 		for _, ns := range namespaces {
 			nsItems, err := c.listNamespace(ns)
 			if err != nil {
 				return exitErr(exitcode.Failure, err)
 			}
+
 			items = append(items, nsItems...)
 		}
+
 		if len(items) == 0 {
 			output.PrintEmpty("configmaps", "", jsonMode, opts.Quiet)
 			return nil
 		}
+
 		return output.PrintList(items, []string{"NAMESPACE", "NAME", "KEYS"}, jsonMode, opts.Quiet)
 	}
 
@@ -173,10 +194,12 @@ func (c *ConfigMap) runGet(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if len(items) == 0 {
 		output.PrintEmpty("configmaps", opts.Namespace, jsonMode, opts.Quiet)
 		return nil
 	}
+
 	return output.PrintList(items, []string{"NAME", "KEYS"}, jsonMode, opts.Quiet)
 }
 
@@ -190,6 +213,7 @@ func (c *ConfigMap) runApply(opts registry.OperationOpts) error {
 		msg := "--file (-f) is required for 'apply configmap'"
 		output.Errorf(jsonMode, "UsageError", msg,
 			"whctl apply configmap <name> -n <namespace> -f <path>", nil, false)
+
 		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 	}
 
@@ -218,7 +242,9 @@ func (c *ConfigMap) runApply(opts registry.OperationOpts) error {
 		if exists {
 			verb = "update"
 		}
+
 		fmt.Printf("Would %s configmap %q in namespace %q\n", verb, name, namespace)
+
 		return nil
 	}
 
@@ -226,16 +252,20 @@ func (c *ConfigMap) runApply(opts registry.OperationOpts) error {
 		if err := c.EnsureDir(namespace, name); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if err := c.WriteManifest(namespace, name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Created configmap %q in namespace %q\n", name, namespace)
 	} else {
 		if err := c.WriteManifest(namespace, name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Updated configmap %q in namespace %q\n", name, namespace)
 	}
+
 	return nil
 }
 
@@ -248,9 +278,11 @@ func (c *ConfigMap) runDelete(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if !exists {
 		msg := fmt.Sprintf("configmap %q not found in namespace %q", name, namespace)
 		output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 		return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 	}
 
@@ -269,6 +301,7 @@ func (c *ConfigMap) runDelete(opts registry.OperationOpts) error {
 	}
 
 	fmt.Printf("Deleted configmap %q in namespace %q\n", name, namespace)
+
 	return nil
 }
 
@@ -280,37 +313,45 @@ func (c *ConfigMap) runDoctor(opts registry.OperationOpts) error {
 
 	if opts.Name != "" {
 		namespace := opts.Namespace
+
 		exists, err := c.Exists(namespace, opts.Name)
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if !exists {
 			msg := fmt.Sprintf("configmap %q not found in namespace %q", opts.Name, namespace)
 			output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 			return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 		}
+
 		c.doctorConfigMap(rep, namespace, opts.Name)
 	} else if opts.AllNamespaces {
 		namespaces, err := c.ValidNamespaces()
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		for _, ns := range namespaces {
 			names, err := c.ListNames(ns)
 			if err != nil {
 				rep.Warnf("namespace/"+ns, "list-configmaps", "cannot list configmaps: %v", err)
 				continue
 			}
+
 			for _, name := range names {
 				c.doctorConfigMap(rep, ns, name)
 			}
 		}
 	} else {
 		namespace := opts.Namespace
+
 		names, err := c.ListNames(namespace)
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		for _, name := range names {
 			c.doctorConfigMap(rep, namespace, name)
 		}
@@ -319,10 +360,13 @@ func (c *ConfigMap) runDoctor(opts registry.OperationOpts) error {
 	if jsonMode {
 		return rep.PrintJSON()
 	}
+
 	rep.PrintHuman(opts.Quiet)
+
 	if rep.HasErrors() {
 		return exitErr(exitcode.Failure, fmt.Errorf("doctor found errors"))
 	}
+
 	return nil
 }
 

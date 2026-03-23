@@ -28,6 +28,7 @@ func main() {
 			fmt.Fprintln(os.Stderr, "Error:", ee.Err.Error())
 			os.Exit(ee.Code)
 		}
+
 		fmt.Fprintln(os.Stderr, "Error:", err.Error())
 		os.Exit(exitcode.Failure)
 	}
@@ -86,6 +87,7 @@ func newVersionCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			fmt.Printf("whctl version %s (commit: %s, built: %s)\n",
 				version.Version, version.GitCommit, version.BuildDate)
+
 			return nil
 		},
 	}
@@ -107,6 +109,7 @@ func BuildCommandTree(root *cobra.Command, gf *GlobalFlags) {
 // Running the verb with no kind lists resources that support it.
 func buildVerbCommand(verb string, gf *GlobalFlags) *cobra.Command {
 	var declaringEntries []*registry.Entry
+
 	for _, e := range registry.AllEntries() {
 		if e.FindOperation(verb) != nil {
 			declaringEntries = append(declaringEntries, e)
@@ -145,7 +148,6 @@ func buildVerbCommand(verb string, gf *GlobalFlags) *cobra.Command {
 // newKindCmd builds a single cobra subcommand for verb+kind under a specific name.
 func newKindCmd(verb, kindName string, e *registry.Entry, op *registry.OperationDef,
 	gf *GlobalFlags) *cobra.Command {
-
 	info := e.Registration.Info
 
 	use := kindName
@@ -169,6 +171,7 @@ func newKindCmd(verb, kindName string, e *registry.Entry, op *registry.Operation
 					return exitErr(exitcode.UsageError, err)
 				}
 			}
+
 			if op.RequiresName && name == "" {
 				return exitErr(exitcode.UsageError,
 					fmt.Errorf("<name> is required\nUsage: whctl %s %s", verb, use))
@@ -180,6 +183,7 @@ func newKindCmd(verb, kindName string, e *registry.Entry, op *registry.Operation
 			}
 
 			handler := e.Registration.Factory(opts.DataDir, opts.FS)
+
 			return op.Run(handler, opts)
 		},
 	}
@@ -230,13 +234,13 @@ func prependSpaces(lines []string) []string {
 	for i, l := range lines {
 		out[i] = "  " + l
 	}
+
 	return out
 }
 
 // collectOpts assembles OperationOpts from parsed flags and config.
 func collectOpts(cmd *cobra.Command, gf *GlobalFlags,
 	kind, name string, entry *registry.Entry, op *registry.OperationDef) (registry.OperationOpts, error) {
-
 	filesystem, dataDir, err := resolveBackend(gf.Context, gf.Whconfig)
 	if err != nil {
 		return registry.OperationOpts{}, exitErr(exitcode.Failure, fmt.Errorf("%s", err))
@@ -267,6 +271,7 @@ func collectOpts(cmd *cobra.Command, gf *GlobalFlags,
 
 	// Collect operation-specific flags
 	flags := make(map[string]any)
+
 	for _, fd := range op.Flags {
 		switch fd.Type {
 		case "string":
@@ -295,8 +300,6 @@ func collectOpts(cmd *cobra.Command, gf *GlobalFlags,
 		Flags:         flags,
 	}, nil
 }
-
-
 
 // verbDefaults holds the canonical one-line description for each known verb.
 // These are shown in the root command help and used as fallbacks wherever a
@@ -327,6 +330,7 @@ func verbShort(verb string) string {
 	if s, ok := verbDefaults[verb]; ok {
 		return s
 	}
+
 	return strings.ToUpper(verb[:1]) + verb[1:] + " a resource"
 }
 
@@ -336,9 +340,9 @@ func opShort(op *registry.OperationDef) string {
 	if op.Short != "" {
 		return op.Short
 	}
+
 	return verbShort(op.Verb)
 }
-
 
 // buildVerbExamples generates the Examples block for a verb command.
 // It emits one line per resource that declares the verb, using the plural kind
@@ -348,6 +352,7 @@ func buildVerbExamples(verb string, entries []*registry.Entry) string {
 	for _, e := range entries {
 		lines = append(lines, "  whctl "+verb+" "+e.Registration.Info.Plural)
 	}
+
 	return strings.Join(lines, "\n")
 }
 
@@ -366,17 +371,22 @@ func newActionsCmd() *cobra.Command {
 			if err := validateResourceName(kind); err != nil {
 				return exitErr(exitcode.UsageError, err)
 			}
+
 			entry := registry.Get(kind)
 			if entry == nil {
 				return exitErr(exitcode.UsageError,
 					fmt.Errorf("unknown kind %q — run 'whctl --help' to see available kinds", kind))
 			}
+
 			info := entry.Registration.Info
 			fmt.Printf("Actions for '%s':\n\n", info.Plural)
+
 			for _, op := range entry.Registration.Operations {
 				fmt.Printf("  %-16s  %s\n", op.Verb, opShort(&op))
 			}
+
 			fmt.Printf("\nRun 'whctl <action> %s --help' for usage details.\n", info.Plural)
+
 			return nil
 		},
 	}
@@ -386,13 +396,17 @@ func newActionsCmd() *cobra.Command {
 // with the per-kind short description of that operation.
 func runListResourcesForVerb(verb string, entries []*registry.Entry) error {
 	fmt.Printf("Resources that support '%s':\n\n", verb)
+
 	for _, e := range entries {
 		op := e.FindOperation(verb)
 		if op == nil {
 			continue
 		}
+
 		fmt.Printf("  %-16s  %s\n", e.Registration.Info.Plural, opShort(op))
 	}
+
 	fmt.Printf("\nRun 'whctl %s <kind> --help' for usage details.\n", verb)
+
 	return nil
 }

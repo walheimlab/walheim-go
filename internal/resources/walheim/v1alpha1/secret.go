@@ -55,10 +55,12 @@ func (s *Secret) parseManifest(namespace, name string) (*SecretManifest, error) 
 	if err != nil {
 		return nil, err
 	}
+
 	var m SecretManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse secret %q in namespace %q: %w", name, namespace, err)
 	}
+
 	return &m, nil
 }
 
@@ -68,14 +70,18 @@ func secretKeys(m *SecretManifest) string {
 	for k := range m.Data {
 		seen[k] = struct{}{}
 	}
+
 	for k := range m.StringData {
 		seen[k] = struct{}{}
 	}
+
 	keys := make([]string, 0, len(seen))
 	for k := range seen {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
+
 	return strings.Join(keys, ", ")
 }
 
@@ -97,14 +103,17 @@ func (s *Secret) getOne(namespace, name string) (resource.ResourceMeta, error) {
 	if err != nil {
 		return resource.ResourceMeta{}, err
 	}
+
 	if !exists {
 		return resource.ResourceMeta{},
 			exitcode.New(exitcode.NotFound, fmt.Errorf("secret %q not found in namespace %q", name, namespace))
 	}
+
 	m, err := s.parseManifest(namespace, name)
 	if err != nil {
 		return resource.ResourceMeta{}, err
 	}
+
 	return secretToMeta(namespace, name, m), nil
 }
 
@@ -113,6 +122,7 @@ func (s *Secret) listNamespace(namespace string) ([]resource.ResourceMeta, error
 	if err != nil {
 		return nil, err
 	}
+
 	items := make([]resource.ResourceMeta, 0, len(names))
 	for _, name := range names {
 		m, err := s.parseManifest(namespace, name)
@@ -120,8 +130,10 @@ func (s *Secret) listNamespace(namespace string) ([]resource.ResourceMeta, error
 			output.Warnf("skipping secret %q in namespace %q: %v", name, namespace, err)
 			continue
 		}
+
 		items = append(items, secretToMeta(namespace, name, m))
 	}
+
 	return items, nil
 }
 
@@ -131,20 +143,25 @@ func validateSecretManifest(m *SecretManifest, namespace, name string) error {
 	if m.APIVersion != secretKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", secretKind.APIVersion(), m.APIVersion)
 	}
+
 	if m.Kind != secretKind.Kind {
 		return fmt.Errorf("invalid kind: expected %q, got %q", secretKind.Kind, m.Kind)
 	}
+
 	if m.Metadata.Name != name {
 		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
 	}
+
 	if m.Metadata.Namespace != namespace {
 		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Metadata.Namespace, namespace)
 	}
+
 	for k, v := range m.Data {
 		if _, err := base64.StdEncoding.DecodeString(v); err != nil {
 			return fmt.Errorf("data[%q] is not valid base64: %w", k, err)
 		}
 	}
+
 	return nil
 }
 
@@ -158,8 +175,10 @@ func (s *Secret) runGet(opts registry.OperationOpts) error {
 		if err != nil {
 			output.Errorf(jsonMode, "NotFound",
 				fmt.Sprintf("secret %q not found in namespace %q", opts.Name, opts.Namespace), "", nil, false)
+
 			return err
 		}
+
 		return output.PrintOne(meta, jsonMode)
 	}
 
@@ -168,18 +187,23 @@ func (s *Secret) runGet(opts registry.OperationOpts) error {
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		var items []resource.ResourceMeta
+
 		for _, ns := range namespaces {
 			nsItems, err := s.listNamespace(ns)
 			if err != nil {
 				return exitErr(exitcode.Failure, err)
 			}
+
 			items = append(items, nsItems...)
 		}
+
 		if len(items) == 0 {
 			output.PrintEmpty("secrets", "", jsonMode, opts.Quiet)
 			return nil
 		}
+
 		return output.PrintList(items, []string{"NAMESPACE", "NAME", "TYPE", "KEYS"}, jsonMode, opts.Quiet)
 	}
 
@@ -187,10 +211,12 @@ func (s *Secret) runGet(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if len(items) == 0 {
 		output.PrintEmpty("secrets", opts.Namespace, jsonMode, opts.Quiet)
 		return nil
 	}
+
 	return output.PrintList(items, []string{"NAME", "TYPE", "KEYS"}, jsonMode, opts.Quiet)
 }
 
@@ -204,6 +230,7 @@ func (s *Secret) runApply(opts registry.OperationOpts) error {
 		msg := "--file (-f) is required for 'apply secret'"
 		output.Errorf(jsonMode, "UsageError", msg,
 			"whctl apply secret <name> -n <namespace> -f <path>", nil, false)
+
 		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 	}
 
@@ -232,7 +259,9 @@ func (s *Secret) runApply(opts registry.OperationOpts) error {
 		if exists {
 			verb = "update"
 		}
+
 		fmt.Printf("Would %s secret %q in namespace %q\n", verb, name, namespace)
+
 		return nil
 	}
 
@@ -240,16 +269,20 @@ func (s *Secret) runApply(opts registry.OperationOpts) error {
 		if err := s.EnsureDir(namespace, name); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if err := s.WriteManifest(namespace, name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Created secret %q in namespace %q\n", name, namespace)
 	} else {
 		if err := s.WriteManifest(namespace, name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Updated secret %q in namespace %q\n", name, namespace)
 	}
+
 	return nil
 }
 
@@ -262,9 +295,11 @@ func (s *Secret) runDelete(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if !exists {
 		msg := fmt.Sprintf("secret %q not found in namespace %q", name, namespace)
 		output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 		return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 	}
 
@@ -283,6 +318,7 @@ func (s *Secret) runDelete(opts registry.OperationOpts) error {
 	}
 
 	fmt.Printf("Deleted secret %q in namespace %q\n", name, namespace)
+
 	return nil
 }
 
@@ -294,37 +330,45 @@ func (s *Secret) runDoctor(opts registry.OperationOpts) error {
 
 	if opts.Name != "" {
 		namespace := opts.Namespace
+
 		exists, err := s.Exists(namespace, opts.Name)
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if !exists {
 			msg := fmt.Sprintf("secret %q not found in namespace %q", opts.Name, namespace)
 			output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 			return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 		}
+
 		s.doctorSecret(rep, namespace, opts.Name)
 	} else if opts.AllNamespaces {
 		namespaces, err := s.ValidNamespaces()
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		for _, ns := range namespaces {
 			names, err := s.ListNames(ns)
 			if err != nil {
 				rep.Warnf("namespace/"+ns, "list-secrets", "cannot list secrets: %v", err)
 				continue
 			}
+
 			for _, name := range names {
 				s.doctorSecret(rep, ns, name)
 			}
 		}
 	} else {
 		namespace := opts.Namespace
+
 		names, err := s.ListNames(namespace)
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		for _, name := range names {
 			s.doctorSecret(rep, namespace, name)
 		}
@@ -333,10 +377,13 @@ func (s *Secret) runDoctor(opts registry.OperationOpts) error {
 	if jsonMode {
 		return rep.PrintJSON()
 	}
+
 	rep.PrintHuman(opts.Quiet)
+
 	if rep.HasErrors() {
 		return exitErr(exitcode.Failure, fmt.Errorf("doctor found errors"))
 	}
+
 	return nil
 }
 

@@ -13,6 +13,7 @@ func FromContext(ctx *config.Context) (FS, string, error) {
 	}
 
 	s3cfg := ctx.S3
+
 	fsImpl, err := NewS3FS(S3FSConfig{
 		Endpoint:        s3cfg.Endpoint,
 		Region:          s3cfg.Region,
@@ -24,5 +25,6 @@ func FromContext(ctx *config.Context) (FS, string, error) {
 	if err != nil {
 		return nil, "", err
 	}
+
 	return fsImpl, "", nil
 }

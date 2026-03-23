@@ -32,18 +32,23 @@ func validateJobManifest(m *JobManifest, namespace, name string) error {
 	if m.APIVersion != jobKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", jobKind.APIVersion(), m.APIVersion)
 	}
+
 	if m.Kind != jobKind.Kind {
 		return fmt.Errorf("invalid kind: expected %q, got %q", jobKind.Kind, m.Kind)
 	}
+
 	if m.Metadata.Name != name {
 		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
 	}
+
 	if m.Metadata.Namespace != namespace {
 		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Metadata.Namespace, namespace)
 	}
+
 	if m.Spec.Image == "" {
 		return fmt.Errorf("spec.image is required")
 	}
+
 	return nil
 }
 
@@ -69,14 +74,17 @@ func (j *Job) KindInfo() resource.KindInfo { return jobKind }
 
 func (j *Job) loadNamespaceManifest(namespace string) (*NamespaceManifest, error) {
 	path := filepath.Join(j.DataDir, "namespaces", namespace, ".namespace.yaml")
+
 	data, err := j.FS.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("namespace %q not found", namespace)
 	}
+
 	var m NamespaceManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
+
 	return &m, nil
 }
 
@@ -94,13 +102,17 @@ type jobRunInfo struct {
 // A sentinel key "_ns_<namespace>" records whether the host was reachable.
 func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
 	type nsHost struct{ ns, host string }
+
 	var pairs []nsHost
+
 	seen := map[string]bool{}
+
 	for _, ns := range namespaces {
 		m, err := j.loadNamespaceManifest(ns)
 		if err != nil {
 			continue
 		}
+
 		host := m.Spec.sshTarget()
 		if !seen[host] {
 			seen[host] = true
@@ -110,24 +122,30 @@ func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
 
 	mu := sync.Mutex{}
 	results := map[string]jobRunInfo{}
+
 	var wg sync.WaitGroup
 
 	for _, p := range pairs {
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
+
 			client := ssh.NewClient(p.host)
 			out, err := client.RunOutput(
 				`docker ps -a` +
 					` --filter "label=walheim.managed=true"` +
 					` --filter "label=walheim.job"` +
 					` --format '{{.Label "walheim.namespace"}}|{{.Label "walheim.job"}}|{{.State}}|{{.Status}}|{{.CreatedAt}}'`)
+
 			mu.Lock()
 			defer mu.Unlock()
+
 			results["_ns_"+p.ns] = jobRunInfo{queried: err == nil}
 			if err != nil {
 				return
 			}
+
 			for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 				line = strings.TrimSpace(line)
 				if line == "" {
@@ -139,6 +157,7 @@ func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
 				if len(parts) < 5 {
 					continue
 				}
+
 				ns, name := parts[0], parts[1]
 				key := ns + "/" + name
 				// docker ps -a returns newest-first; only record the first (most recent).
@@ -153,7 +172,9 @@ func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
 			}
 		}()
 	}
+
 	wg.Wait()
+
 	return results
 }
 
@@ -162,6 +183,7 @@ func aggregateJobStatus(results map[string]jobRunInfo, namespace, name string) (
 	if !results["_ns_"+namespace].queried {
 		return "Unknown", "-"
 	}
+
 	info, ok := results[namespace+"/"+name]
 	if !ok || info.state == "" {
 		return "Never", "-"
@@ -189,6 +211,7 @@ func aggregateJobStatus(results map[string]jobRunInfo, namespace, name string) (
 	} else {
 		lastRun = info.createdAt
 	}
+
 	return
 }
 
@@ -200,9 +223,13 @@ func aggregateJobStatus(results map[string]jobRunInfo, namespace, name string) (
 func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesystem fs.FS, dataDir string) error {
 	// Resolve env (envFrom + env overrides).
 	env := make(map[string]string)
+
 	for _, entry := range spec.EnvFrom {
-		var kvMap map[string]string
-		var err error
+		var (
+			kvMap map[string]string
+			err   error
+		)
+
 		if entry.SecretRef != nil {
 			kvMap, err = loadSecret(ns, entry.SecretRef.Name, filesystem, dataDir)
 		} else if entry.ConfigMapRef != nil {
@@ -210,21 +237,24 @@ func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesys
 		} else {
 			continue
 		}
+
 		if err != nil {
 			return fmt.Errorf("envFrom: %w", err)
 		}
+
 		for k, v := range kvMap {
 			if _, exists := env[k]; !exists {
 				env[k] = v
 			}
 		}
 	}
+
 	for _, entry := range spec.Env {
 		env[entry.Name] = substituteVars(entry.Value, env)
 	}
 
 	svc := ComposeService{
-		Image: spec.Image,
+		Image:       spec.Image,
 		Environment: ServiceEnv{Values: env},
 		Labels: ServiceLabels{Values: map[string]string{
 			"walheim.managed":   "true",
@@ -238,27 +268,34 @@ func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesys
 
 	// Write mount files and add volumes.
 	for _, entry := range spec.Mounts {
-		var kvMap map[string]string
-		var sourceType, sourceName string
-		var err error
+		var (
+			kvMap                  map[string]string
+			sourceType, sourceName string
+			err                    error
+		)
+
 		if entry.SecretRef != nil {
 			kvMap, err = loadSecret(ns, entry.SecretRef.Name, filesystem, dataDir)
 			if err != nil {
 				return fmt.Errorf("mounts: %w", err)
 			}
+
 			sourceType, sourceName = "secrets", entry.SecretRef.Name
 		} else if entry.ConfigMapRef != nil {
 			kvMap, err = loadConfigMap(ns, entry.ConfigMapRef.Name, filesystem, dataDir)
 			if err != nil {
 				return fmt.Errorf("mounts: %w", err)
 			}
+
 			sourceType, sourceName = "configmaps", entry.ConfigMapRef.Name
 		} else {
 			continue
 		}
+
 		if err := writeMountFiles(localResourceDir, sourceType, sourceName, kvMap, filesystem); err != nil {
 			return err
 		}
+
 		existing, _ := svc.Extra["volumes"].([]any)
 		svc.Extra["volumes"] = append(existing, fmt.Sprintf("./mounts/%s/%s:%s:ro", sourceType, sourceName, entry.MountPath))
 	}
@@ -270,11 +307,14 @@ func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesys
 	compose := ComposeSpec{
 		Services: map[string]ComposeService{"job": svc},
 	}
+
 	encoded, err := yaml.Marshal(compose)
 	if err != nil {
 		return fmt.Errorf("marshal docker-compose: %w", err)
 	}
+
 	composePath := filepath.Join(localResourceDir, "docker-compose.yml")
+
 	return filesystem.WriteFile(composePath, encoded)
 }
 
@@ -285,10 +325,12 @@ func (j *Job) parseManifest(namespace, name string) (*JobManifest, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var m JobManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse job %q in namespace %q: %w", name, namespace, err)
 	}
+
 	return &m, nil
 }
 
@@ -311,14 +353,17 @@ func (j *Job) getOne(namespace, name string) (resource.ResourceMeta, *JobManifes
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
 	}
+
 	if !exists {
 		return resource.ResourceMeta{}, nil,
 			exitcode.New(exitcode.NotFound, fmt.Errorf("job %q not found in namespace %q", name, namespace))
 	}
+
 	m, err := j.parseManifest(namespace, name)
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
 	}
+
 	return jobToMeta(namespace, name, m, "Configured", "-"), m, nil
 }
 
@@ -327,17 +372,23 @@ func (j *Job) listNamespace(namespace string) ([]*JobManifest, []string, error) 
 	if err != nil {
 		return nil, nil, err
 	}
-	var manifests []*JobManifest
-	var validNames []string
+
+	var (
+		manifests  []*JobManifest
+		validNames []string
+	)
+
 	for _, name := range names {
 		m, err := j.parseManifest(namespace, name)
 		if err != nil {
 			output.Warnf("skipping job %q in namespace %q: %v", name, namespace, err)
 			continue
 		}
+
 		manifests = append(manifests, m)
 		validNames = append(validNames, name)
 	}
+
 	return manifests, validNames, nil
 }
 
@@ -348,14 +399,18 @@ func (j *Job) runGet(opts registry.OperationOpts) error {
 
 	if opts.Name != "" {
 		namespace := opts.Namespace
+
 		_, m, err := j.getOne(namespace, opts.Name)
 		if err != nil {
 			output.Errorf(jsonMode, "NotFound",
 				fmt.Sprintf("job %q not found in namespace %q", opts.Name, namespace), "", nil, false)
+
 			return err
 		}
+
 		statusMap := j.prefetchJobStatus([]string{namespace})
 		status, lastRun := aggregateJobStatus(statusMap, namespace, opts.Name)
+
 		return output.PrintOne(jobToMeta(namespace, opts.Name, m, status, lastRun), jsonMode)
 	}
 
@@ -364,40 +419,50 @@ func (j *Job) runGet(opts registry.OperationOpts) error {
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		statusMap := j.prefetchJobStatus(namespaces)
+
 		var items []resource.ResourceMeta
+
 		for _, ns := range namespaces {
 			manifests, names, err := j.listNamespace(ns)
 			if err != nil {
 				return exitErr(exitcode.Failure, err)
 			}
+
 			for i, m := range manifests {
 				status, lastRun := aggregateJobStatus(statusMap, ns, names[i])
 				items = append(items, jobToMeta(ns, names[i], m, status, lastRun))
 			}
 		}
+
 		if len(items) == 0 {
 			output.PrintEmpty("jobs", "", jsonMode, opts.Quiet)
 			return nil
 		}
+
 		return output.PrintList(items, []string{"NAMESPACE", "NAME", "IMAGE", "STATUS", "LAST RUN"}, jsonMode, opts.Quiet)
 	}
 
 	namespace := opts.Namespace
 	statusMap := j.prefetchJobStatus([]string{namespace})
+
 	manifests, names, err := j.listNamespace(namespace)
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if len(manifests) == 0 {
 		output.PrintEmpty("jobs", namespace, jsonMode, opts.Quiet)
 		return nil
 	}
+
 	items := make([]resource.ResourceMeta, len(manifests))
 	for i, m := range manifests {
 		status, lastRun := aggregateJobStatus(statusMap, namespace, names[i])
 		items[i] = jobToMeta(namespace, names[i], m, status, lastRun)
 	}
+
 	return output.PrintList(items, []string{"NAME", "IMAGE", "STATUS", "LAST RUN"}, jsonMode, opts.Quiet)
 }
 
@@ -411,6 +476,7 @@ func (j *Job) runApply(opts registry.OperationOpts) error {
 		msg := "--file (-f) is required for 'apply job'"
 		output.Errorf(jsonMode, "UsageError", msg,
 			"whctl apply job <name> -n <namespace> -f <path>", nil, false)
+
 		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 	}
 
@@ -439,7 +505,9 @@ func (j *Job) runApply(opts registry.OperationOpts) error {
 		if exists {
 			verb = "update"
 		}
+
 		fmt.Printf("Would %s job %q in namespace %q\n", verb, name, namespace)
+
 		return nil
 	}
 
@@ -447,16 +515,20 @@ func (j *Job) runApply(opts registry.OperationOpts) error {
 		if err := j.EnsureDir(namespace, name); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if err := j.WriteManifest(namespace, name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Created job %q in namespace %q\n", name, namespace)
 	} else {
 		if err := j.WriteManifest(namespace, name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Updated job %q in namespace %q\n", name, namespace)
 	}
+
 	return nil
 }
 
@@ -485,10 +557,12 @@ func (j *Job) runRun(opts registry.OperationOpts) error {
 	detach := opts.Bool("detach")
 
 	var cmdParts []string
+
 	cmdParts = append(cmdParts, "cd "+remoteResourceDir+" && docker compose run --rm")
 	if detach {
 		cmdParts = append(cmdParts, "--detach")
 	}
+
 	cmdParts = append(cmdParts, "job")
 	cmd := strings.Join(cmdParts, " ")
 
@@ -505,6 +579,7 @@ func (j *Job) runRun(opts registry.OperationOpts) error {
 	if err := sshClient.Run(cmd); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("job %q failed: %w", name, err))
 	}
+
 	return nil
 }
 
@@ -517,9 +592,11 @@ func (j *Job) runDelete(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if !exists {
 		msg := fmt.Sprintf("job %q not found in namespace %q", name, namespace)
 		output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 		return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 	}
 
@@ -538,6 +615,7 @@ func (j *Job) runDelete(opts registry.OperationOpts) error {
 	}
 
 	fmt.Printf("Deleted job %q\n", name)
+
 	return nil
 }
 
@@ -554,14 +632,18 @@ func (j *Job) runLogs(opts registry.OperationOpts) error {
 	tail := opts.Int("tail")
 
 	remoteResourceDir := nsMeta.Spec.remoteBaseDir() + "/jobs/" + name
+
 	var cmdParts []string
+
 	cmdParts = append(cmdParts, "cd "+remoteResourceDir+" && docker compose logs")
 	if follow {
 		cmdParts = append(cmdParts, "--follow")
 	}
+
 	if tail != -1 {
 		cmdParts = append(cmdParts, fmt.Sprintf("--tail %d", tail))
 	}
+
 	cmdParts = append(cmdParts, "job")
 	cmd := strings.Join(cmdParts, " ")
 
@@ -574,6 +656,7 @@ func (j *Job) runLogs(opts registry.OperationOpts) error {
 	if follow {
 		return sshClient.Exec(cmd, false)
 	}
+
 	return sshClient.Run(cmd)
 }
 
@@ -591,11 +674,14 @@ func (j *Job) runDoctor(opts registry.OperationOpts) error {
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if !exists {
 			msg := fmt.Sprintf("job %q not found in namespace %q", opts.Name, opts.Namespace)
 			output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 			return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 		}
+
 		names = []string{opts.Name}
 	}
 
@@ -606,10 +692,13 @@ func (j *Job) runDoctor(opts registry.OperationOpts) error {
 	if jsonMode {
 		return rep.PrintJSON()
 	}
+
 	rep.PrintHuman(opts.Quiet)
+
 	if rep.HasErrors() {
 		return exitErr(exitcode.Failure, fmt.Errorf("doctor found errors"))
 	}
+
 	return nil
 }
 

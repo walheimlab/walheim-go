@@ -33,12 +33,15 @@ func validateNamespaceManifest(m *NamespaceManifest) error {
 	if want := namespaceKind.APIVersion(); m.APIVersion != want {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", want, m.APIVersion)
 	}
+
 	if m.Kind != namespaceKind.Kind {
 		return fmt.Errorf("invalid kind: expected %q, got %q", namespaceKind.Kind, m.Kind)
 	}
+
 	if m.Spec.Hostname == "" {
 		return fmt.Errorf("spec.hostname is required")
 	}
+
 	return nil
 }
 
@@ -69,10 +72,12 @@ func (n *Namespace) parseManifest(name string) (*NamespaceManifest, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var m NamespaceManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse namespace %q: %w", name, err)
 	}
+
 	return &m, nil
 }
 
@@ -81,6 +86,7 @@ func namespaceToMeta(name string, m *NamespaceManifest) resource.ResourceMeta {
 	if h == "" {
 		h = "N/A"
 	}
+
 	return resource.ResourceMeta{
 		Name:   name,
 		Labels: m.Metadata.Labels,
@@ -98,14 +104,17 @@ func (n *Namespace) getOne(name string) (resource.ResourceMeta, *NamespaceManife
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
 	}
+
 	if !exists {
 		return resource.ResourceMeta{}, nil,
 			exitcode.New(exitcode.NotFound, fmt.Errorf("namespace %q not found", name))
 	}
+
 	m, err := n.parseManifest(name)
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
 	}
+
 	return namespaceToMeta(name, m), m, nil
 }
 
@@ -114,14 +123,17 @@ func (n *Namespace) listAll() ([]resource.ResourceMeta, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	items := make([]resource.ResourceMeta, 0, len(names))
 	for _, name := range names {
 		m, err := n.parseManifest(name)
 		if err != nil {
 			return nil, err
 		}
+
 		items = append(items, namespaceToMeta(name, m))
 	}
+
 	return items, nil
 }
 
@@ -134,6 +146,7 @@ func (n *Namespace) createSubdirs(name string) error {
 			return fmt.Errorf("create %s subdir: %w", sub, err)
 		}
 	}
+
 	return nil
 }
 
@@ -144,8 +157,10 @@ func (n *Namespace) countLocalResources(nsName string) namespaceResourceCounts {
 		if err != nil {
 			return 0
 		}
+
 		return len(entries)
 	}
+
 	return namespaceResourceCounts{
 		Apps:       count("apps"),
 		Secrets:    count("secrets"),
@@ -163,10 +178,12 @@ func (n *Namespace) runGet(opts registry.OperationOpts) error {
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if len(items) == 0 {
 			output.PrintEmpty("namespaces", "", jsonMode, opts.Quiet)
 			return nil
 		}
+
 		return output.PrintList(items, []string{"NAME", "HOSTNAME", "USERNAME"}, jsonMode, opts.Quiet)
 	}
 
@@ -174,8 +191,10 @@ func (n *Namespace) runGet(opts registry.OperationOpts) error {
 	if err != nil {
 		output.Errorf(jsonMode, "NotFound",
 			fmt.Sprintf("namespace %q not found", opts.Name), "", nil, false)
+
 		return err
 	}
+
 	return output.PrintOne(meta, jsonMode)
 }
 
@@ -187,10 +206,12 @@ func (n *Namespace) runCreate(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if exists {
 		msg := fmt.Sprintf("namespace %q already exists", name)
 		output.Errorf(jsonMode, "Conflict", msg,
 			"Use 'whctl apply' to update an existing namespace.", nil, false)
+
 		return exitErr(exitcode.Conflict, fmt.Errorf("%s", msg))
 	}
 
@@ -198,6 +219,7 @@ func (n *Namespace) runCreate(opts registry.OperationOpts) error {
 	if hostname == "" {
 		hostname = name
 	}
+
 	username := opts.String("username")
 	baseDir := opts.String("base-dir")
 
@@ -211,21 +233,25 @@ func (n *Namespace) runCreate(opts registry.OperationOpts) error {
 	if opts.DryRun {
 		fmt.Printf("Would create namespace %q (hostname: %s, username: %s, base-dir: %s)\n",
 			name, hostname, m.Spec.usernameDisplay(), m.Spec.baseDirDisplay())
+
 		return nil
 	}
 
 	if err := n.EnsureDir(name); err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if err := n.createSubdirs(name); err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if err := n.WriteManifest(name, m); err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
 
 	fmt.Printf("Created namespace %q (hostname: %s, username: %s, base-dir: %s)\n",
 		name, hostname, m.Spec.usernameDisplay(), m.Spec.baseDirDisplay())
+
 	return nil
 }
 
@@ -238,6 +264,7 @@ func (n *Namespace) runApply(opts registry.OperationOpts) error {
 		msg := "--file (-f) is required for 'apply namespace'"
 		output.Errorf(jsonMode, "UsageError", msg,
 			"whctl apply namespace <name> -f <path>", nil, false)
+
 		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 	}
 
@@ -260,6 +287,7 @@ func (n *Namespace) runApply(opts registry.OperationOpts) error {
 		msg := fmt.Sprintf("manifest metadata.name %q does not match argument %q",
 			m.Metadata.Name, name)
 		output.Errorf(jsonMode, "ValidationError", msg, "", nil, false)
+
 		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 	}
 
@@ -273,7 +301,9 @@ func (n *Namespace) runApply(opts registry.OperationOpts) error {
 		if exists {
 			verb = "update"
 		}
+
 		fmt.Printf("Would %s namespace %q\n", verb, name)
+
 		return nil
 	}
 
@@ -281,19 +311,24 @@ func (n *Namespace) runApply(opts registry.OperationOpts) error {
 		if err := n.EnsureDir(name); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if err := n.createSubdirs(name); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if err := n.WriteManifest(name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Created namespace %q\n", name)
 	} else {
 		if err := n.WriteManifest(name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Updated namespace %q\n", name)
 	}
+
 	return nil
 }
 
@@ -305,9 +340,11 @@ func (n *Namespace) runDelete(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if !exists {
 		msg := fmt.Sprintf("namespace %q not found", name)
 		output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 		return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 	}
 
@@ -326,6 +363,7 @@ func (n *Namespace) runDelete(opts registry.OperationOpts) error {
 	}
 
 	fmt.Printf("Deleted namespace %q\n", name)
+
 	return nil
 }
 
@@ -369,6 +407,7 @@ func (n *Namespace) runDescribe(opts registry.OperationOpts) error {
 	if err != nil {
 		output.Errorf(jsonMode, "NotFound",
 			fmt.Sprintf("namespace %q not found", name), "", nil, false)
+
 		return err
 	}
 
@@ -376,6 +415,7 @@ func (n *Namespace) runDescribe(opts registry.OperationOpts) error {
 	if jsonMode {
 		return n.describeJSON(name, m, target)
 	}
+
 	return n.describeHuman(name, m, target)
 }
 
@@ -403,6 +443,7 @@ func (n *Namespace) describeJSON(name string, m *NamespaceManifest, target strin
 
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
+
 	return enc.Encode(result)
 }
 
@@ -419,6 +460,7 @@ func (n *Namespace) describeHuman(name string, m *NamespaceManifest, target stri
 		fmt.Println("Connection:  Failed")
 		fmt.Println()
 		fmt.Println("Unable to connect. Check SSH configuration.")
+
 		return nil
 	}
 
@@ -428,13 +470,16 @@ func (n *Namespace) describeHuman(name string, m *NamespaceManifest, target stri
 
 	if apps := namespaceContainers(client, name); len(apps) > 0 {
 		fmt.Println("Deployed Apps:")
+
 		for _, a := range apps {
 			fmt.Printf("  %-20s %-12s %s\n", a.Name, a.State, a.Status)
 		}
+
 		fmt.Println()
 	}
 
 	counts := n.countLocalResources(name)
+
 	fmt.Println("Resources:")
 	fmt.Printf("  Apps:       %d\n", counts.Apps)
 	fmt.Printf("  Secrets:    %d\n", counts.Secrets)
@@ -455,16 +500,19 @@ func namespaceDockerVersion(client *ssh.Client) string {
 	if err != nil || strings.TrimSpace(out) == "" {
 		return "Not available"
 	}
+
 	parts := strings.Fields(strings.TrimSpace(out))
 	if len(parts) >= 3 {
 		return fmt.Sprintf("Available (v%s)", strings.TrimSuffix(parts[2], ","))
 	}
+
 	return fmt.Sprintf("Available (%s)", strings.TrimSpace(out))
 }
 
 func namespaceContainers(client *ssh.Client, nsName string) []namespaceDeployedApp {
 	cmd := `docker ps -a --filter label=walheim.namespace=` + nsName +
 		` --format "{{.Label "walheim.app"}}|{{.State}}|{{.Status}}" 2>/dev/null`
+
 	out, err := client.RunOutput(cmd)
 	if err != nil || strings.TrimSpace(out) == "" {
 		return nil
@@ -475,7 +523,9 @@ func namespaceContainers(client *ssh.Client, nsName string) []namespaceDeployedA
 		running int
 		total   int
 	}
+
 	aggMap := make(map[string]*agg)
+
 	var order []string
 
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
@@ -483,20 +533,25 @@ func namespaceContainers(client *ssh.Client, nsName string) []namespaceDeployedA
 		if line == "" {
 			continue
 		}
+
 		parts := strings.SplitN(line, "|", 3)
 		if len(parts) < 2 {
 			continue
 		}
+
 		appName, state := parts[0], parts[1]
 		if _, ok := aggMap[appName]; !ok {
 			aggMap[appName] = &agg{}
 			order = append(order, appName)
 		}
+
 		a := aggMap[appName]
+
 		a.total++
 		if strings.ToLower(state) == "running" {
 			a.running++
 		}
+
 		if a.state == "" || strings.ToLower(state) != "running" {
 			a.state = state
 		}
@@ -511,6 +566,7 @@ func namespaceContainers(client *ssh.Client, nsName string) []namespaceDeployedA
 			Status: strconv.Itoa(a.running) + "/" + strconv.Itoa(a.total),
 		})
 	}
+
 	return result
 }
 
@@ -533,6 +589,7 @@ func namespaceAppState(rawState string, running, total int) string {
 func namespaceUsageInfo(client *ssh.Client) *namespaceUsage {
 	diskOut, _ := client.RunOutput("df -h /data 2>/dev/null | tail -1")
 	diskStr := "N/A"
+
 	if line := strings.TrimSpace(diskOut); line != "" {
 		if parts := strings.Fields(line); len(parts) >= 3 {
 			diskStr = parts[2] + " / " + parts[1]
@@ -541,8 +598,10 @@ func namespaceUsageInfo(client *ssh.Client) *namespaceUsage {
 
 	ctOut, _ := client.RunOutput("docker ps -q 2>/dev/null | wc -l; docker ps -aq 2>/dev/null | wc -l")
 	ctStr := "N/A"
+
 	if lines := strings.Split(strings.TrimSpace(ctOut), "\n"); len(lines) >= 2 {
 		run, err1 := strconv.Atoi(strings.TrimSpace(lines[0]))
+
 		total, err2 := strconv.Atoi(strings.TrimSpace(lines[1]))
 		if err1 == nil && err2 == nil {
 			ctStr = fmt.Sprintf("%d running, %d stopped", run, total-run)
@@ -552,6 +611,7 @@ func namespaceUsageInfo(client *ssh.Client) *namespaceUsage {
 	if diskStr == "N/A" && ctStr == "N/A" {
 		return nil
 	}
+
 	return &namespaceUsage{Disk: diskStr, Containers: ctStr}
 }
 
@@ -572,11 +632,14 @@ func (n *Namespace) runDoctor(opts registry.OperationOpts) error {
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if !exists {
 			msg := fmt.Sprintf("namespace %q not found", opts.Name)
 			output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 			return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 		}
+
 		names = []string{opts.Name}
 	}
 
@@ -587,10 +650,13 @@ func (n *Namespace) runDoctor(opts registry.OperationOpts) error {
 	if jsonMode {
 		return rep.PrintJSON()
 	}
+
 	rep.PrintHuman(opts.Quiet)
+
 	if rep.HasErrors() {
 		return exitErr(exitcode.Failure, fmt.Errorf("doctor found errors"))
 	}
+
 	return nil
 }
 
@@ -625,11 +691,13 @@ func (n *Namespace) doctorNamespace(rep *doctor.Report, name string) {
 	nsDir := n.ResourceDir(name)
 	for _, sub := range []string{"apps", "secrets", "configmaps"} {
 		subPath := filepath.Join(nsDir, sub)
+
 		exists, err := n.FS.Exists(subPath)
 		if err != nil {
 			rep.Warnf(resourceID, "subdir-check", "cannot check %s/ directory: %v", sub, err)
 			continue
 		}
+
 		if !exists {
 			rep.Warnf(resourceID, "missing-subdir",
 				"%s/ subdirectory is missing (run 'whctl create namespace %s' to repair)", sub, name)

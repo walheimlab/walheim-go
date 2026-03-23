@@ -44,6 +44,7 @@ func (s NamespaceSpec) remoteBaseDir() string {
 	if s.BaseDir != "" {
 		return s.BaseDir
 	}
+
 	return DefaultRemoteBaseDir
 }
 
@@ -51,6 +52,7 @@ func (s NamespaceSpec) sshTarget() string {
 	if s.Username != "" {
 		return s.Username + "@" + s.Hostname
 	}
+
 	return s.Hostname
 }
 
@@ -58,6 +60,7 @@ func (s NamespaceSpec) usernameDisplay() string {
 	if s.Username != "" {
 		return s.Username
 	}
+
 	return "(from SSH config)"
 }
 
@@ -65,6 +68,7 @@ func (s NamespaceSpec) baseDirDisplay() string {
 	if s.BaseDir != "" {
 		return s.BaseDir
 	}
+
 	return DefaultRemoteBaseDir + " (default)"
 }
 
@@ -85,10 +89,10 @@ type AppSpec struct {
 	// user-authored docker-compose file whose service definitions, volume
 	// mounts, network configs, etc. are open-ended. Structured fields that
 	// Walheim cares about (envFrom, env) are separate typed fields below.
-	Compose  ComposeSpec    `yaml:"compose"`
-	EnvFrom  []EnvFromEntry `yaml:"envFrom,omitempty"`
-	Env      []EnvEntry     `yaml:"env,omitempty"`
-	Mounts   []MountEntry   `yaml:"mounts,omitempty"`
+	Compose ComposeSpec    `yaml:"compose"`
+	EnvFrom []EnvFromEntry `yaml:"envFrom,omitempty"`
+	Env     []EnvEntry     `yaml:"env,omitempty"`
+	Mounts  []MountEntry   `yaml:"mounts,omitempty"`
 }
 
 // ComposeSpec is the raw docker-compose document.
@@ -105,9 +109,9 @@ type ComposeSpec struct {
 // Walheim reads Image, Environment, and Labels; everything else is passed
 // through verbatim via Extra.
 type ComposeService struct {
-	Image       string            `yaml:"image,omitempty"`
-	Environment ServiceEnv        `yaml:"environment,omitempty"`
-	Labels      ServiceLabels     `yaml:"labels,omitempty"`
+	Image       string        `yaml:"image,omitempty"`
+	Environment ServiceEnv    `yaml:"environment,omitempty"`
+	Labels      ServiceLabels `yaml:"labels,omitempty"`
 	// Extra holds all other service keys (ports, volumes, depends_on, …)
 	// preserved verbatim on round-trip.
 	Extra map[string]any `yaml:",inline"`
@@ -122,6 +126,7 @@ type ServiceEnv struct {
 
 func (e *ServiceEnv) UnmarshalYAML(value *yaml.Node) error {
 	e.Values = make(map[string]string)
+
 	switch value.Kind {
 	case yaml.MappingNode:
 		// map form: {KEY: value}
@@ -129,6 +134,7 @@ func (e *ServiceEnv) UnmarshalYAML(value *yaml.Node) error {
 		if err := value.Decode(&m); err != nil {
 			return err
 		}
+
 		e.Values = m
 	case yaml.SequenceNode:
 		// list form: ["KEY=value", "KEY2=value2"]
@@ -136,6 +142,7 @@ func (e *ServiceEnv) UnmarshalYAML(value *yaml.Node) error {
 		if err := value.Decode(&list); err != nil {
 			return err
 		}
+
 		for _, item := range list {
 			if idx := strings.IndexByte(item, '='); idx >= 0 {
 				e.Values[item[:idx]] = item[idx+1:]
@@ -144,6 +151,7 @@ func (e *ServiceEnv) UnmarshalYAML(value *yaml.Node) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -160,18 +168,21 @@ type ServiceLabels struct {
 
 func (l *ServiceLabels) UnmarshalYAML(value *yaml.Node) error {
 	l.Values = make(map[string]string)
+
 	switch value.Kind {
 	case yaml.MappingNode:
 		var m map[string]string
 		if err := value.Decode(&m); err != nil {
 			return err
 		}
+
 		l.Values = m
 	case yaml.SequenceNode:
 		var list []string
 		if err := value.Decode(&list); err != nil {
 			return err
 		}
+
 		for _, item := range list {
 			if idx := strings.IndexByte(item, '='); idx >= 0 {
 				l.Values[item[:idx]] = item[idx+1:]
@@ -180,6 +191,7 @@ func (l *ServiceLabels) UnmarshalYAML(value *yaml.Node) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -254,11 +266,13 @@ func (s *LabelSelector) Matches(labels map[string]string) bool {
 	if s == nil || len(s.MatchLabels) == 0 {
 		return true
 	}
+
 	for k, v := range s.MatchLabels {
 		if labels[k] != v {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -288,11 +302,11 @@ type JobSpec struct {
 
 // SecretManifest is the typed representation of a .secret.yaml file.
 type SecretManifest struct {
-	APIVersion string            `yaml:"apiVersion"`
-	Kind       string            `yaml:"kind"`
-	Metadata   ResourceMetadata  `yaml:"metadata"`
+	APIVersion string           `yaml:"apiVersion"`
+	Kind       string           `yaml:"kind"`
+	Metadata   ResourceMetadata `yaml:"metadata"`
 	// Data holds base64-encoded key/value pairs.
-	Data       map[string]string `yaml:"data,omitempty"`
+	Data map[string]string `yaml:"data,omitempty"`
 	// StringData holds plaintext key/value pairs.
 	// On merge, StringData takes precedence over Data for the same key.
 	StringData map[string]string `yaml:"stringData,omitempty"`

@@ -45,6 +45,7 @@ func (b *NamespacedBase) ReadBytes(namespace, name string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s/%s in namespace %s: %w", b.Info.Plural, name, namespace, err)
 	}
+
 	return data, nil
 }
 
@@ -54,9 +55,11 @@ func (b *NamespacedBase) WriteManifest(namespace, name string, v any) error {
 	if err != nil {
 		return fmt.Errorf("marshal %s/%s in namespace %s: %w", b.Info.Plural, name, namespace, err)
 	}
+
 	if err := b.FS.WriteFile(b.ManifestPath(namespace, name), encoded); err != nil {
 		return fmt.Errorf("write %s/%s in namespace %s: %w", b.Info.Plural, name, namespace, err)
 	}
+
 	return nil
 }
 
@@ -80,23 +83,29 @@ func (b *NamespacedBase) ListNames(namespace string) ([]string, error) {
 		if existsErr != nil {
 			return nil, existsErr
 		}
+
 		if !exists {
 			return nil, nil
 		}
+
 		return nil, fmt.Errorf("read %s dir in namespace %s: %w", b.Info.Plural, namespace, err)
 	}
 
 	var names []string
+
 	for _, entry := range entries {
 		manifestPath := filepath.Join(baseDir, entry, b.ManifestFilename)
+
 		exists, err := b.FS.Exists(manifestPath)
 		if err != nil {
 			return nil, err
 		}
+
 		if exists {
 			names = append(names, entry)
 		}
 	}
+
 	return names, nil
 }
 
@@ -110,22 +119,28 @@ func (b *NamespacedBase) ValidNamespaces() ([]string, error) {
 		if existsErr != nil {
 			return nil, existsErr
 		}
+
 		if !exists {
 			return nil, nil
 		}
+
 		return nil, fmt.Errorf("read namespaces dir: %w", err)
 	}
 
 	var namespaces []string
+
 	for _, entry := range entries {
 		manifestPath := filepath.Join(nsDir, entry, namespaceManifest)
+
 		exists, err := b.FS.Exists(manifestPath)
 		if err != nil {
 			return nil, err
 		}
+
 		if exists {
 			namespaces = append(namespaces, entry)
 		}
 	}
+
 	return namespaces, nil
 }

@@ -34,14 +34,17 @@ func (lfs *LocalFS) WriteFile(path string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
+
 	tmpPath := tmpFile.Name()
 
 	// Write data
 	if _, err := tmpFile.Write(data); err != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmpPath)
+
 		return fmt.Errorf("failed to write temp file: %w", err)
 	}
+
 	_ = tmpFile.Close()
 
 	// Atomic rename
@@ -69,9 +72,11 @@ func (lfs *LocalFS) Exists(path string) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
+
 	if os.IsNotExist(err) {
 		return false, nil
 	}
+
 	return false, err
 }
 
@@ -82,8 +87,10 @@ func (lfs *LocalFS) IsDir(path string) (bool, error) {
 		if os.IsNotExist(err) {
 			return false, nil
 		}
+
 		return false, err
 	}
+
 	return info.IsDir(), nil
 }
 
@@ -96,6 +103,7 @@ func (lfs *LocalFS) ReadDir(path string) ([]string, error) {
 	}
 
 	var names []string
+
 	for _, entry := range entries {
 		// Skip hidden entries (starting with ".")
 		if entry.Name()[0] != '.' {
@@ -104,5 +112,6 @@ func (lfs *LocalFS) ReadDir(path string) ([]string, error) {
 	}
 
 	sort.Strings(names)
+
 	return names, nil
 }

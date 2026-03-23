@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "skills": {
+    "agent-friendly-cli": {
+      "source": "akhy/agent-skills",
+      "sourceType": "github",
+      "computedHash": "43c829a115069a5c54c3e5de2b131a73aafb725c7382fc6c8f336026994ec9fe"
+    },
+    "go-release": {
+      "source": "akhy/agent-skills",
+      "sourceType": "github",
+      "computedHash": "468b9f4afcd5cf44f9b42c52893a5a843b6f18e7d69af6bd8b28914c08be0fc3"
+    }
+  }
+}

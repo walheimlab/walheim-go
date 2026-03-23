@@ -84,14 +84,17 @@ func (s *S3FS) key(p string) string {
 		if s.prefix != "" {
 			return s.prefix
 		}
+
 		return ""
 	}
 	// Normalize to forward slashes (important on Windows)
 	p = path.Clean(strings.ReplaceAll(p, "\\", "/"))
+
 	p = strings.TrimPrefix(p, "/")
 	if s.prefix == "" {
 		return p
 	}
+
 	return s.prefix + "/" + p
 }
 
@@ -104,6 +107,7 @@ func (s *S3FS) Ping() error {
 	if err != nil {
 		return fmt.Errorf("S3 bucket %q is not accessible: %w", s.bucket, err)
 	}
+
 	return nil
 }
 
@@ -117,9 +121,12 @@ func (s *S3FS) ReadFile(p string) ([]byte, error) {
 		if isNotFound(err) {
 			return nil, fmt.Errorf("open %s: no such key", p)
 		}
+
 		return nil, fmt.Errorf("S3 GetObject %s: %w", p, err)
 	}
+
 	defer func() { _ = out.Body.Close() }()
+
 	return io.ReadAll(out.Body)
 }
 
@@ -134,6 +141,7 @@ func (s *S3FS) WriteFile(p string, data []byte) error {
 	if err != nil {
 		return fmt.Errorf("S3 PutObject %s: %w", p, err)
 	}
+
 	return nil
 }
 
@@ -143,6 +151,7 @@ func (s *S3FS) MkdirAll(_ string) error { return nil }
 // RemoveAll deletes all objects under path/ as well as the exact key path.
 func (s *S3FS) RemoveAll(p string) error {
 	prefix := s.key(p) + "/"
+
 	var toDelete []types.ObjectIdentifier
 
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
@@ -154,6 +163,7 @@ func (s *S3FS) RemoveAll(p string) error {
 		if err != nil {
 			return fmt.Errorf("S3 list for RemoveAll %s: %w", p, err)
 		}
+
 		for _, obj := range page.Contents {
 			toDelete = append(toDelete, types.ObjectIdentifier{Key: obj.Key})
 		}
@@ -169,6 +179,7 @@ func (s *S3FS) RemoveAll(p string) error {
 		if n > 1000 {
 			n = 1000
 		}
+
 		batch := toDelete[:n]
 		toDelete = toDelete[n:]
 
@@ -180,6 +191,7 @@ func (s *S3FS) RemoveAll(p string) error {
 			return fmt.Errorf("S3 DeleteObjects: %w", err)
 		}
 	}
+
 	return nil
 }
 
@@ -192,9 +204,11 @@ func (s *S3FS) Exists(p string) (bool, error) {
 	if err == nil {
 		return true, nil
 	}
+
 	if isNotFound(err) {
 		return s.hasChildren(p)
 	}
+
 	return false, fmt.Errorf("S3 HeadObject %s: %w", p, err)
 }
 
@@ -208,9 +222,11 @@ func (s *S3FS) IsDir(p string) (bool, error) {
 	if err == nil {
 		return false, nil
 	}
+
 	if !isNotFound(err) {
 		return false, fmt.Errorf("S3 HeadObject %s: %w", p, err)
 	}
+
 	return s.hasChildren(p)
 }
 
@@ -218,7 +234,9 @@ func (s *S3FS) IsDir(p string) (bool, error) {
 // Uses S3 list with delimiter to emulate directory listing.
 func (s *S3FS) ReadDir(p string) ([]string, error) {
 	prefix := s.key(p) + "/"
+
 	var names []string
+
 	seen := map[string]bool{}
 
 	paginator := s3.NewListObjectsV2Paginator(s.client, &s3.ListObjectsV2Input{
@@ -247,6 +265,7 @@ func (s *S3FS) ReadDir(p string) ([]string, error) {
 	}
 
 	sort.Strings(names)
+
 	return names, nil
 }
 
@@ -260,13 +279,17 @@ func (s *S3FS) hasChildren(p string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("S3 list %s: %w", p, err)
 	}
+
 	return len(out.Contents) > 0, nil
 }
 
 // isNotFound returns true for S3 404-style errors.
 func isNotFound(err error) bool {
-	var noSuchKey *types.NoSuchKey
-	var notFound *types.NotFound
+	var (
+		noSuchKey *types.NoSuchKey
+		notFound  *types.NotFound
+	)
+
 	return errors.As(err, &noSuchKey) || errors.As(err, &notFound)
 }
 
@@ -280,5 +303,6 @@ func (r *staticEndpointResolver) ResolveEndpoint(_ context.Context, _ s3.Endpoin
 	if err != nil {
 		return smithyendpoints.Endpoint{}, fmt.Errorf("invalid S3 endpoint URL %q: %w", r.rawURL, err)
 	}
+
 	return smithyendpoints.Endpoint{URI: *u}, nil
 }

@@ -46,11 +46,13 @@ func (c *Client) RunOutput(cmd string) (string, error) {
 	sshCmd := exec.Command("ssh", args...)
 
 	var stdout bytes.Buffer
+
 	sshCmd.Stdout = &stdout
 	sshCmd.Stderr = os.Stderr
 	sshCmd.Stdin = os.Stdin
 
 	err := sshCmd.Run()
+
 	return stdout.String(), err
 }
 
@@ -67,6 +69,7 @@ func (c *Client) Exec(cmd string, tty bool) error {
 	// syscall.Exec replaces the current process with the SSH process
 	// This ensures signals and TTY are properly inherited
 	err = syscall.Exec(sshPath, append([]string{"ssh"}, args...), os.Environ())
+
 	return fmt.Errorf("syscall.Exec failed: %w", err)
 }
 

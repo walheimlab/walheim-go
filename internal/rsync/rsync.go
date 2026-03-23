@@ -35,21 +35,25 @@ func (s *Syncer) Sync(filesystem wfs.FS, localRoot, remoteHost, remoteDir string
 	if err != nil {
 		return fmt.Errorf("sftp stdin pipe: %w", err)
 	}
+
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return fmt.Errorf("sftp stdout pipe: %w", err)
 	}
+
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("start ssh sftp: %w", err)
 	}
+
 	defer func() { _ = cmd.Wait() }()
 
 	client, err := sftp.NewClientPipe(stdout, stdin)
 	if err != nil {
 		return fmt.Errorf("sftp client: %w", err)
 	}
+
 	defer func() { _ = client.Close() }()
 
 	if err := client.MkdirAll(remoteDir); err != nil {
@@ -79,6 +83,7 @@ func upload(client *sftp.Client, filesystem wfs.FS, localPath, remotePath string
 			if err := client.MkdirAll(remoteEntry); err != nil {
 				return fmt.Errorf("mkdir remote %s: %w", remoteEntry, err)
 			}
+
 			if err := upload(client, filesystem, localEntry, remoteEntry); err != nil {
 				return err
 			}
@@ -87,16 +92,20 @@ func upload(client *sftp.Client, filesystem wfs.FS, localPath, remotePath string
 			if err != nil {
 				return fmt.Errorf("read %s: %w", localEntry, err)
 			}
+
 			f, err := client.Create(remoteEntry)
 			if err != nil {
 				return fmt.Errorf("create remote %s: %w", remoteEntry, err)
 			}
+
 			_, writeErr := f.Write(data)
 			_ = f.Close()
+
 			if writeErr != nil {
 				return fmt.Errorf("write remote %s: %w", remoteEntry, writeErr)
 			}
 		}
 	}
+
 	return nil
 }

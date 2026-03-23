@@ -15,10 +15,12 @@ import (
 )
 
 func newLabelCmd(gf *GlobalFlags) *cobra.Command {
-	var namespace string
-	var overwrite bool
-	var list bool
-	var dryRun bool
+	var (
+		namespace string
+		overwrite bool
+		list      bool
+		dryRun    bool
+	)
 
 	cmd := &cobra.Command{
 		Use:   "label <kind> <name> [KEY=VALUE...] [KEY-]",
@@ -48,13 +50,16 @@ Use --list to print all current labels without modifying them.`,
 				msg := "--list cannot be combined with label specifications"
 				output.Errorf(jsonMode, "UsageError", msg,
 					"Use --list alone, or provide KEY=VALUE / KEY- specs without --list.", nil, false)
+
 				return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 			}
+
 			if !list && len(specs) == 0 {
 				msg := "no label specifications provided"
 				output.Errorf(jsonMode, "UsageError", msg,
 					"Usage: whctl label KIND NAME KEY=VALUE [KEY=VALUE...] [KEY-]\n"+
 						"       whctl label KIND NAME --list", nil, false)
+
 				return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 			}
 
@@ -66,6 +71,7 @@ Use --list to print all current labels without modifying them.`,
 			if list {
 				return runLabelList(backend, dataDir, kind, name, namespace, jsonMode)
 			}
+
 			return runLabelSet(backend, dataDir, kind, name, namespace, specs, overwrite, dryRun, jsonMode)
 		},
 	}
@@ -94,6 +100,7 @@ func runLabelList(localFS fs.FS, dataDir, kind, name, namespace string, jsonMode
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
+
 		return enc.Encode(result)
 	}
 
@@ -106,16 +113,18 @@ func runLabelList(localFS fs.FS, dataDir, kind, name, namespace string, jsonMode
 	for k := range lbls {
 		keys = append(keys, k)
 	}
+
 	sort.Strings(keys)
+
 	for _, k := range keys {
 		fmt.Printf("%s=%s\n", k, lbls[k])
 	}
+
 	return nil
 }
 
 func runLabelSet(localFS fs.FS, dataDir, kind, name, namespace string,
 	specs []string, overwrite, dryRun, jsonMode bool) error {
-
 	if dryRun {
 		return printLabelDryRun(kind, name, namespace, specs, jsonMode)
 	}
@@ -136,15 +145,18 @@ func runLabelSet(localFS fs.FS, dataDir, kind, name, namespace string,
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
+
 		return enc.Encode(result)
 	}
 
 	fmt.Printf("%s labeled\n", labelResourceRef(kind, name, namespace))
+
 	return nil
 }
 
 func printLabelDryRun(kind, name, namespace string, specs []string, jsonMode bool) error {
 	ref := labelResourceRef(kind, name, namespace)
+
 	if jsonMode {
 		actions := make([]map[string]string, 0, len(specs))
 		for _, spec := range specs {
@@ -161,6 +173,7 @@ func printLabelDryRun(kind, name, namespace string, specs []string, jsonMode boo
 				})
 			}
 		}
+
 		result := map[string]any{
 			"dry_run":   true,
 			"kind":      kind,
@@ -170,6 +183,7 @@ func printLabelDryRun(kind, name, namespace string, specs []string, jsonMode boo
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
+
 		return enc.Encode(result)
 	}
 
@@ -180,6 +194,7 @@ func printLabelDryRun(kind, name, namespace string, specs []string, jsonMode boo
 			fmt.Printf("Would set label %s on %s\n", spec, ref)
 		}
 	}
+
 	return nil
 }
 
@@ -190,6 +205,7 @@ func labelResourceRef(kind, name, namespace string) string {
 	if namespace != "" {
 		return fmt.Sprintf("%s/%s -n %s", kind, name, namespace)
 	}
+
 	return fmt.Sprintf("%s/%s", kind, name)
 }
 
@@ -205,6 +221,7 @@ func labelErrorCode(err error) string {
 			return "Conflict"
 		}
 	}
+
 	return "Failure"
 }
 
@@ -213,5 +230,6 @@ func labelSetSuggestion(err error) string {
 	if strings.Contains(err.Error(), "already exists") {
 		return "Use --overwrite to replace existing labels."
 	}
+
 	return ""
 }

@@ -137,6 +137,7 @@ func (e *Entry) FindOperation(verb string) *OperationDef {
 			return &e.Registration.Operations[i]
 		}
 	}
+
 	return nil
 }
 
@@ -147,8 +148,8 @@ func (e *Entry) IsCluster() bool {
 
 // registry holds all registered resource kinds.
 var (
-	mu       sync.RWMutex
-	byName   = make(map[string]*Entry) // keyed by plural, singular, and aliases
+	mu        sync.RWMutex
+	byName    = make(map[string]*Entry) // keyed by plural, singular, and aliases
 	allPlural []string                  // sorted list of plural names (visible entries)
 )
 
@@ -177,6 +178,7 @@ func Register(r Registration) {
 func Get(kind string) *Entry {
 	mu.RLock()
 	defer mu.RUnlock()
+
 	return byName[kind]
 }
 
@@ -191,6 +193,7 @@ func AllEntries() []*Entry {
 			result = append(result, e)
 		}
 	}
+
 	return result
 }
 
@@ -202,11 +205,13 @@ func AllOperations() []string {
 	defer mu.RUnlock()
 
 	seen := make(map[string]struct{})
+
 	for _, plural := range allPlural {
 		e, ok := byName[plural]
 		if !ok {
 			continue
 		}
+
 		for _, op := range e.Registration.Operations {
 			seen[op.Verb] = struct{}{}
 		}
@@ -216,7 +221,9 @@ func AllOperations() []string {
 	for v := range seen {
 		verbs = append(verbs, v)
 	}
+
 	sort.Strings(verbs)
+
 	return verbs
 }
 
@@ -227,9 +234,11 @@ func RunHook(h resource.Handler, entry *Entry, hookVerb string, opts OperationOp
 	if hookVerb == "" {
 		return nil
 	}
+
 	op := entry.FindOperation(hookVerb)
 	if op == nil {
 		return nil
 	}
+
 	return op.Run(h, opts)
 }

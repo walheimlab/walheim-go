@@ -58,24 +58,30 @@ func newContextListCmd(gf *GlobalFlags) *cobra.Command {
 					Location string `json:"location"`
 					Active   bool   `json:"active"`
 				}
+
 				result := make([]contextJSON, len(views))
 				for i, v := range views {
 					result[i] = contextJSON{Name: v.Name, Location: v.Location, Active: v.Active}
 				}
+
 				enc := json.NewEncoder(os.Stdout)
 				enc.SetIndent("", "  ")
+
 				return enc.Encode(result)
 			}
 
 			w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
 			_, _ = fmt.Fprintln(w, "ACTIVE\tNAME\tLOCATION")
+
 			for _, v := range views {
 				active := " "
 				if v.Active {
 					active = "*"
 				}
+
 				_, _ = fmt.Fprintf(w, "%s\t%s\t%s\n", active, v.Name, v.Location)
 			}
+
 			return w.Flush()
 		},
 	}
@@ -103,6 +109,7 @@ func newContextUseCmd(gf *GlobalFlags) *cobra.Command {
 			}
 
 			fmt.Printf("Switched to context %q\n", args[0])
+
 			return nil
 		},
 	}
@@ -161,8 +168,10 @@ Credentials for S3 may be omitted to use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_K
 					return exitErr(exitcode.UsageError,
 						fmt.Errorf("data directory %q does not exist (create it first)", expandedDir))
 				}
+
 				return exitErr(exitcode.Failure, fmt.Errorf("failed to stat data directory: %w", err))
 			}
+
 			if !info.IsDir() {
 				return exitErr(exitcode.UsageError,
 					fmt.Errorf("%q is not a directory", expandedDir))
@@ -171,6 +180,7 @@ Credentials for S3 may be omitted to use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_K
 			nsDir := filepath.Join(expandedDir, "namespaces")
 			if _, err := os.Stat(nsDir); os.IsNotExist(err) {
 				fmt.Printf("Notice: creating %s\n", nsDir)
+
 				if err := os.MkdirAll(nsDir, 0755); err != nil {
 					return exitErr(exitcode.Failure,
 						fmt.Errorf("failed to create namespaces directory: %w", err))
@@ -191,6 +201,7 @@ Credentials for S3 may be omitted to use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_K
 			}
 
 			fmt.Printf("Added context %q (data dir: %s) and set as active\n", name, expandedDir)
+
 			return nil
 		},
 	}
@@ -203,6 +214,7 @@ Credentials for S3 may be omitted to use AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_K
 	cmd.Flags().StringVar(&s3PrefixFlag, "s3-prefix", "", "Optional S3 key prefix within the bucket")
 	cmd.Flags().StringVar(&s3AccessKeyID, "s3-access-key-id", "", "S3 access key ID (omit to use AWS_ACCESS_KEY_ID env var)")
 	cmd.Flags().StringVar(&s3SecretKey, "s3-secret-access-key", "", "S3 secret access key (omit to use AWS_SECRET_ACCESS_KEY env var)")
+
 	return cmd
 }
 
@@ -211,6 +223,7 @@ func runContextNewS3(gf *GlobalFlags, name, endpoint, region, bucket, prefix, ac
 	if bucket == "" {
 		return exitErr(exitcode.UsageError, fmt.Errorf("--s3-bucket is required for S3 backend"))
 	}
+
 	if region == "" {
 		return exitErr(exitcode.UsageError, fmt.Errorf("--s3-region is required for S3 backend"))
 	}
@@ -241,7 +254,9 @@ func runContextNewS3(gf *GlobalFlags, name, endpoint, region, bucket, prefix, ac
 	if err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("failed to initialise S3 client: %w", err))
 	}
+
 	fmt.Printf("Checking bucket %q...\n", bucket)
+
 	if err := s3fs.Ping(); err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
@@ -258,7 +273,9 @@ func runContextNewS3(gf *GlobalFlags, name, endpoint, region, bucket, prefix, ac
 	if prefix != "" {
 		loc += "/" + prefix
 	}
+
 	fmt.Printf("Added context %q (location: %s) and set as active\n", name, loc)
+
 	return nil
 }
 
@@ -267,10 +284,12 @@ func loadOrInitConfig(whconfigFlag string) (*config.Config, error) {
 	if existing, loadErr := config.Load(whconfigFlag); loadErr == nil {
 		return existing, nil
 	}
+
 	fresh, initErr := config.Init(whconfigFlag)
 	if initErr != nil {
 		return nil, exitErr(exitcode.Failure, fmt.Errorf("failed to initialise config: %w", initErr))
 	}
+
 	return fresh, nil
 }
 
@@ -297,6 +316,7 @@ func newContextDeleteCmd(gf *GlobalFlags) *cobra.Command {
 			}
 
 			fmt.Printf("Deleted context %q\n", args[0])
+
 			return nil
 		},
 	}
@@ -324,11 +344,15 @@ func newContextCurrentCmd(gf *GlobalFlags) *cobra.Command {
 							Name     string `json:"name"`
 							Location string `json:"location"`
 						}
+
 						enc := json.NewEncoder(os.Stdout)
 						enc.SetIndent("", "  ")
+
 						return enc.Encode(currentJSON{Name: v.Name, Location: v.Location})
 					}
+
 					fmt.Printf("%s\t%s\n", v.Name, v.Location)
+
 					return nil
 				}
 			}
@@ -345,6 +369,7 @@ func loadConfigForContext(whconfigFlag string) (*config.Config, error) {
 		return nil, exitErr(exitcode.Failure,
 			fmt.Errorf("failed to load config: %w\nRun 'whctl context new' to create a config", err))
 	}
+
 	return cfg, nil
 }
 
@@ -355,7 +380,9 @@ func expandHome(path string) string {
 		if err != nil {
 			return path
 		}
+
 		return filepath.Join(home, path[1:])
 	}
+
 	return path
 }

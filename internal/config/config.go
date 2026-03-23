@@ -105,6 +105,7 @@ func Init(configPath string) (*Config, error) {
 	if err != nil {
 		return nil, &ConfigError{message: fmt.Sprintf("failed to marshal config: %v", err)}
 	}
+
 	if err := os.WriteFile(resolvedPath, data, 0600); err != nil {
 		return nil, &ConfigError{
 			message: fmt.Sprintf("failed to write config file %q: %v", resolvedPath, err),
@@ -171,26 +172,31 @@ func (c *Config) Save() error {
 
 	// Create temp file in same directory as target for atomic rename
 	dir := filepath.Dir(c.path)
+
 	tmpFile, err := os.CreateTemp(dir, ".walheim-config-*.tmp")
 	if err != nil {
 		return &ConfigError{
 			message: fmt.Sprintf("failed to create temp file: %v", err),
 		}
 	}
+
 	tmpPath := tmpFile.Name()
 
 	if _, err := tmpFile.Write(data); err != nil {
 		_ = tmpFile.Close()
 		_ = os.Remove(tmpPath)
+
 		return &ConfigError{
 			message: fmt.Sprintf("failed to write temp file: %v", err),
 		}
 	}
+
 	_ = tmpFile.Close()
 
 	// Atomic rename
 	if err := os.Rename(tmpPath, c.path); err != nil {
 		_ = os.Remove(tmpPath)
+
 		return &ConfigError{
 			message: fmt.Sprintf("failed to save config: %v", err),
 		}
@@ -286,6 +292,7 @@ func (c *Config) AddContext(name, dataDir string, activate bool) error {
 // If it's the current context, clears currentContext.
 func (c *Config) DeleteContext(name string) error {
 	idx := -1
+
 	for i, ctx := range c.Contexts {
 		if ctx.Name == name {
 			idx = i
@@ -325,6 +332,7 @@ func (c *Config) UseContext(name string) error {
 // ListContexts returns all contexts with "active" status.
 func (c *Config) ListContexts() []ContextView {
 	var result []ContextView
+
 	for _, ctx := range c.Contexts {
 		loc := ctx.DataDir
 		if ctx.S3 != nil {
@@ -333,6 +341,7 @@ func (c *Config) ListContexts() []ContextView {
 				loc += "/" + ctx.S3.Prefix
 			}
 		}
+
 		result = append(result, ContextView{
 			Name:     ctx.Name,
 			DataDir:  ctx.DataDir,
@@ -341,6 +350,7 @@ func (c *Config) ListContexts() []ContextView {
 			Active:   ctx.Name == c.CurrentContext,
 		})
 	}
+
 	return result
 }
 
@@ -366,27 +376,32 @@ func (c *Config) validate() error {
 
 	// Check for duplicates and required fields
 	seen := make(map[string]bool)
+
 	for _, ctx := range c.Contexts {
 		if ctx.Name == "" {
 			return &ValidationError{
 				message: "context name cannot be empty",
 			}
 		}
+
 		if ctx.DataDir == "" && ctx.S3 == nil {
 			return &ValidationError{
 				message: fmt.Sprintf("context %q missing dataDir or s3 config", ctx.Name),
 			}
 		}
+
 		if ctx.S3 != nil {
 			if err := validateS3Config(ctx.Name, ctx.S3); err != nil {
 				return err
 			}
 		}
+
 		if seen[ctx.Name] {
 			return &ValidationError{
 				message: fmt.Sprintf("duplicate context name: %q", ctx.Name),
 			}
 		}
+
 		seen[ctx.Name] = true
 	}
 
@@ -407,11 +422,13 @@ func validateS3Config(contextName string, s3 *S3Config) error {
 			message: fmt.Sprintf("context %q: s3.bucket is required", contextName),
 		}
 	}
+
 	if s3.Region == "" {
 		return &ValidationError{
 			message: fmt.Sprintf("context %q: s3.region is required", contextName),
 		}
 	}
+
 	return nil
 }
 
@@ -422,7 +439,9 @@ func expandHome(path string) string {
 		if err != nil {
 			return path
 		}
+
 		return filepath.Join(home, path[1:])
 	}
+
 	return path
 }

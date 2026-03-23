@@ -31,9 +31,11 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 		if svc.Environment.Values == nil {
 			svc.Environment.Values = make(map[string]string)
 		}
+
 		if svc.Labels.Values == nil {
 			svc.Labels.Values = make(map[string]string)
 		}
+
 		services[svcName] = svc
 	}
 
@@ -45,6 +47,7 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 				delete(svc.Labels.Values, k)
 			}
 		}
+
 		svc.Labels.Values["walheim.managed"] = "true"
 		svc.Labels.Values["walheim.namespace"] = namespace
 		svc.Labels.Values["walheim.app"] = name
@@ -61,24 +64,30 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 
 	// Step 2 — Load secrets and configmaps for envFrom (lower precedence — only if key not present).
 	for _, entry := range m.Spec.EnvFrom {
-		var kvMap map[string]string
-		var sourceName string
-		var isSecret bool
+		var (
+			kvMap      map[string]string
+			sourceName string
+			isSecret   bool
+		)
 
 		if entry.SecretRef != nil {
 			var err error
+
 			kvMap, err = loadSecret(namespace, entry.SecretRef.Name, filesystem, dataDir)
 			if err != nil {
 				return fmt.Errorf("envFrom: %w", err)
 			}
+
 			sourceName = entry.SecretRef.Name
 			isSecret = true
 		} else if entry.ConfigMapRef != nil {
 			var err error
+
 			kvMap, err = loadConfigMap(namespace, entry.ConfigMapRef.Name, filesystem, dataDir)
 			if err != nil {
 				return fmt.Errorf("envFrom: %w", err)
 			}
+
 			sourceName = entry.ConfigMapRef.Name
 			isSecret = false
 		} else {
@@ -96,15 +105,18 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 						if secretInjected[svcName] == nil {
 							secretInjected[svcName] = map[string][]string{}
 						}
+
 						secretInjected[svcName][sourceName] = append(secretInjected[svcName][sourceName], k)
 					} else {
 						if configmapInjected[svcName] == nil {
 							configmapInjected[svcName] = map[string][]string{}
 						}
+
 						configmapInjected[svcName][sourceName] = append(configmapInjected[svcName][sourceName], k)
 					}
 				}
 			}
+
 			services[svcName] = svc
 		}
 	}
@@ -123,28 +135,7 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 	}
 
 	// Step 4 — Apply audit labels.
-	for svcName, svc := range services {
-		// walheim.injected-env.override
-		if keys, ok := overrideInjected[svcName]; ok && len(keys) > 0 {
-			sorted := sortedUnique(keys)
-			svc.Labels.Values["walheim.injected-env.override"] = strings.Join(sorted, ",")
-		}
-		// walheim.injected-env.secret.<name>
-		if smap, ok := secretInjected[svcName]; ok {
-			for secretName, keys := range smap {
-				sorted := sortedUnique(keys)
-				svc.Labels.Values["walheim.injected-env.secret."+secretName] = strings.Join(sorted, ",")
-			}
-		}
-		// walheim.injected-env.configmap.<name>
-		if cmap, ok := configmapInjected[svcName]; ok {
-			for cmName, keys := range cmap {
-				sorted := sortedUnique(keys)
-				svc.Labels.Values["walheim.injected-env.configmap."+cmName] = strings.Join(sorted, ",")
-			}
-		}
-		services[svcName] = svc
-	}
+	applyAuditLabels(services, overrideInjected, secretInjected, configmapInjected)
 
 	// Write back modified services
 	m.Spec.Compose.Services = services
@@ -165,7 +156,43 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 	if err := filesystem.WriteFile(composePath, encoded); err != nil {
 		return fmt.Errorf("write docker-compose.yml: %w", err)
 	}
+
 	return nil
+}
+
+// applyAuditLabels stamps walheim.injected-env.* labels onto each service
+// to record which environment keys were injected and from which source.
+func applyAuditLabels(
+	services map[string]ComposeService,
+	overrideInjected map[string][]string,
+	secretInjected map[string]map[string][]string,
+	configmapInjected map[string]map[string][]string,
+) {
+	for svcName, svc := range services {
+		// walheim.injected-env.override
+		if keys, ok := overrideInjected[svcName]; ok && len(keys) > 0 {
+			sorted := sortedUnique(keys)
+			svc.Labels.Values["walheim.injected-env.override"] = strings.Join(sorted, ",")
+		}
+
+		// walheim.injected-env.secret.<name>
+		if smap, ok := secretInjected[svcName]; ok {
+			for secretName, keys := range smap {
+				sorted := sortedUnique(keys)
+				svc.Labels.Values["walheim.injected-env.secret."+secretName] = strings.Join(sorted, ",")
+			}
+		}
+
+		// walheim.injected-env.configmap.<name>
+		if cmap, ok := configmapInjected[svcName]; ok {
+			for cmName, keys := range cmap {
+				sorted := sortedUnique(keys)
+				svc.Labels.Values["walheim.injected-env.configmap."+cmName] = strings.Join(sorted, ",")
+			}
+		}
+
+		services[svcName] = svc
+	}
 }
 
 // ── Mount helpers ─────────────────────────────────────────────────────────────
@@ -178,11 +205,13 @@ func writeMountFiles(resourceDir, sourceType, sourceName string, kvMap map[strin
 	if err := filesystem.MkdirAll(dir); err != nil {
 		return fmt.Errorf("create mount dir for %s/%s: %w", sourceType, sourceName, err)
 	}
+
 	for key, value := range kvMap {
 		if err := filesystem.WriteFile(filepath.Join(dir, key), []byte(value)); err != nil {
 			return fmt.Errorf("write mount file %q: %w", key, err)
 		}
 	}
+
 	return nil
 }
 
@@ -191,21 +220,25 @@ func writeMountFiles(resourceDir, sourceType, sourceName string, kvMap map[strin
 // location (i.e. resourceDir is the directory that contains docker-compose.yml).
 func injectComposeMounts(resourceDir string, services map[string]ComposeService, mounts []MountEntry, namespace string, filesystem fs.FS, dataDir string) error {
 	for _, entry := range mounts {
-		var kvMap map[string]string
-		var sourceType, sourceName string
-		var err error
+		var (
+			kvMap                  map[string]string
+			sourceType, sourceName string
+			err                    error
+		)
 
 		if entry.SecretRef != nil {
 			kvMap, err = loadSecret(namespace, entry.SecretRef.Name, filesystem, dataDir)
 			if err != nil {
 				return fmt.Errorf("mounts: %w", err)
 			}
+
 			sourceType, sourceName = "secrets", entry.SecretRef.Name
 		} else if entry.ConfigMapRef != nil {
 			kvMap, err = loadConfigMap(namespace, entry.ConfigMapRef.Name, filesystem, dataDir)
 			if err != nil {
 				return fmt.Errorf("mounts: %w", err)
 			}
+
 			sourceType, sourceName = "configmaps", entry.ConfigMapRef.Name
 		} else {
 			continue
@@ -223,11 +256,13 @@ func injectComposeMounts(resourceDir string, services map[string]ComposeService,
 			if svc.Extra == nil {
 				svc.Extra = make(map[string]any)
 			}
+
 			existing, _ := svc.Extra["volumes"].([]any)
 			svc.Extra["volumes"] = append(existing, volumeStr)
 			services[svcName] = svc
 		}
 	}
+
 	return nil
 }
 
@@ -237,11 +272,14 @@ func targetServices(services map[string]ComposeService, serviceNames []string) [
 	if len(serviceNames) > 0 {
 		return serviceNames
 	}
+
 	names := make([]string, 0, len(services))
 	for n := range services {
 		names = append(names, n)
 	}
+
 	sort.Strings(names)
+
 	return names
 }
 
@@ -254,6 +292,7 @@ func substituteVars(s string, env map[string]string) string {
 		if val, ok := env[varName]; ok {
 			return val
 		}
+
 		return match
 	})
 }
@@ -261,14 +300,18 @@ func substituteVars(s string, env map[string]string) string {
 // sortedUnique returns sorted, deduplicated copy of keys.
 func sortedUnique(keys []string) []string {
 	seen := map[string]bool{}
+
 	var out []string
+
 	for _, k := range keys {
 		if !seen[k] {
 			seen[k] = true
 			out = append(out, k)
 		}
 	}
+
 	sort.Strings(out)
+
 	return out
 }
 
@@ -277,42 +320,52 @@ func sortedUnique(keys []string) []string {
 // StringData wins on key collision.
 func loadSecret(namespace, name string, filesystem fs.FS, dataDir string) (map[string]string, error) {
 	path := filepath.Join(dataDir, "namespaces", namespace, "secrets", name, ".secret.yaml")
+
 	data, err := filesystem.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("secret %q not found in namespace %q", name, namespace)
 	}
+
 	var sm SecretManifest
 	if err := yaml.Unmarshal(data, &sm); err != nil {
 		return nil, fmt.Errorf("parse secret %q: %w", name, err)
 	}
+
 	result := make(map[string]string, len(sm.Data)+len(sm.StringData))
 	for k, v := range sm.Data {
 		decoded, err := base64.StdEncoding.DecodeString(v)
 		if err != nil {
 			return nil, fmt.Errorf("secret %q key %q: base64 decode failed: %w", name, k, err)
 		}
+
 		result[k] = string(decoded)
 	}
+
 	for k, v := range sm.StringData { // stringData wins
 		result[k] = v
 	}
+
 	return result, nil
 }
 
 // loadConfigMap reads the .configmap.yaml for the named configmap in namespace.
 func loadConfigMap(namespace, name string, filesystem fs.FS, dataDir string) (map[string]string, error) {
 	path := filepath.Join(dataDir, "namespaces", namespace, "configmaps", name, ".configmap.yaml")
+
 	data, err := filesystem.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("configmap %q not found in namespace %q", name, namespace)
 	}
+
 	var cm ConfigMapManifest
 	if err := yaml.Unmarshal(data, &cm); err != nil {
 		return nil, fmt.Errorf("parse configmap %q: %w", name, err)
 	}
+
 	result := make(map[string]string, len(cm.Data))
 	for k, v := range cm.Data {
 		result[k] = v
 	}
+
 	return result, nil
 }

@@ -42,6 +42,7 @@ func (b *ClusterBase) ReadBytes(name string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read %s/%s: %w", b.Info.Plural, name, err)
 	}
+
 	return data, nil
 }
 
@@ -51,9 +52,11 @@ func (b *ClusterBase) WriteManifest(name string, v any) error {
 	if err != nil {
 		return fmt.Errorf("marshal %s/%s: %w", b.Info.Plural, name, err)
 	}
+
 	if err := b.FS.WriteFile(b.ManifestPath(name), encoded); err != nil {
 		return fmt.Errorf("write %s/%s: %w", b.Info.Plural, name, err)
 	}
+
 	return nil
 }
 
@@ -78,22 +81,28 @@ func (b *ClusterBase) ListNames() ([]string, error) {
 		if existsErr != nil {
 			return nil, existsErr
 		}
+
 		if !exists {
 			return nil, nil
 		}
+
 		return nil, fmt.Errorf("read %s dir: %w", b.Info.Plural, err)
 	}
 
 	var names []string
+
 	for _, entry := range entries {
 		manifestPath := filepath.Join(baseDir, entry, b.ManifestFilename)
+
 		exists, err := b.FS.Exists(manifestPath)
 		if err != nil {
 			return nil, err
 		}
+
 		if exists {
 			names = append(names, entry)
 		}
 	}
+
 	return names, nil
 }

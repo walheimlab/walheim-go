@@ -39,6 +39,7 @@ func validateResourceName(name string) error {
 	if !validNameRe.MatchString(name) {
 		return fmt.Errorf("invalid resource name %q: must match ^[a-zA-Z0-9._-]+$", name)
 	}
+
 	return nil
 }
 

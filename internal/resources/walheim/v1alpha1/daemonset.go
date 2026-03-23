@@ -32,15 +32,19 @@ func validateDaemonSetManifest(m *DaemonSetManifest, name string) error {
 	if m.APIVersion != daemonSetKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", daemonSetKind.APIVersion(), m.APIVersion)
 	}
+
 	if m.Kind != daemonSetKind.Kind {
 		return fmt.Errorf("invalid kind: expected %q, got %q", daemonSetKind.Kind, m.Kind)
 	}
+
 	if m.Metadata.Name != name {
 		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
 	}
+
 	if len(m.Spec.Compose.Services) == 0 {
 		return fmt.Errorf("spec.compose.services must define at least one service")
 	}
+
 	return nil
 }
 
@@ -72,39 +76,50 @@ func (d *DaemonSet) KindInfo() resource.KindInfo { return daemonSetKind }
 // given selector, along with their names, ordered alphabetically.
 func matchingNamespaces(selector *LabelSelector, filesystem fs.FS, dataDir string) ([]*NamespaceManifest, []string, error) {
 	baseDir := filepath.Join(dataDir, "namespaces")
+
 	entries, err := filesystem.ReadDir(baseDir)
 	if err != nil {
 		exists, existsErr := filesystem.Exists(baseDir)
 		if existsErr != nil {
 			return nil, nil, existsErr
 		}
+
 		if !exists {
 			return nil, nil, nil
 		}
+
 		return nil, nil, fmt.Errorf("read namespaces dir: %w", err)
 	}
 
-	var manifests []*NamespaceManifest
-	var names []string
+	var (
+		manifests []*NamespaceManifest
+		names     []string
+	)
+
 	for _, entry := range entries {
 		manifestPath := filepath.Join(baseDir, entry, ".namespace.yaml")
+
 		ok, err := filesystem.Exists(manifestPath)
 		if err != nil || !ok {
 			continue
 		}
+
 		data, err := filesystem.ReadFile(manifestPath)
 		if err != nil {
 			continue
 		}
+
 		var m NamespaceManifest
 		if err := yaml.Unmarshal(data, &m); err != nil {
 			continue
 		}
+
 		if selector.Matches(m.Metadata.Labels) {
 			manifests = append(manifests, &m)
 			names = append(names, entry)
 		}
 	}
+
 	return manifests, names, nil
 }
 
@@ -115,19 +130,23 @@ func (d *DaemonSet) parseManifest(name string) (*DaemonSetManifest, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	var m DaemonSetManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse daemonset %q: %w", name, err)
 	}
+
 	return &m, nil
 }
 
 func daemonSetToMeta(name string, m *DaemonSetManifest, matchedNS []string) resource.ResourceMeta {
 	img := "N/A"
+
 	for _, svc := range m.Spec.Compose.Services {
 		if svc.Image != "" {
 			img = svc.Image
 		}
+
 		break
 	}
 
@@ -137,11 +156,13 @@ func daemonSetToMeta(name string, m *DaemonSetManifest, matchedNS []string) reso
 	}
 
 	selector := "(all)"
+
 	if m.Spec.NamespaceSelector != nil && len(m.Spec.NamespaceSelector.MatchLabels) != 0 {
 		parts := make([]string, 0, len(m.Spec.NamespaceSelector.MatchLabels))
 		for k, v := range m.Spec.NamespaceSelector.MatchLabels {
 			parts = append(parts, k+"="+v)
 		}
+
 		sort.Strings(parts)
 		selector = strings.Join(parts, ",")
 	}
@@ -163,15 +184,19 @@ func (d *DaemonSet) getOne(name string) (resource.ResourceMeta, *DaemonSetManife
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
 	}
+
 	if !exists {
 		return resource.ResourceMeta{}, nil,
 			exitcode.New(exitcode.NotFound, fmt.Errorf("daemonset %q not found", name))
 	}
+
 	m, err := d.parseManifest(name)
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
 	}
+
 	_, nsNames, _ := matchingNamespaces(m.Spec.NamespaceSelector, d.FS, d.DataDir)
+
 	return daemonSetToMeta(name, m, nsNames), m, nil
 }
 
@@ -180,6 +205,7 @@ func (d *DaemonSet) listAll() ([]resource.ResourceMeta, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	items := make([]resource.ResourceMeta, 0, len(names))
 	for _, name := range names {
 		m, err := d.parseManifest(name)
@@ -187,9 +213,11 @@ func (d *DaemonSet) listAll() ([]resource.ResourceMeta, error) {
 			output.Warnf("skipping daemonset %q: %v", name, err)
 			continue
 		}
+
 		_, nsNames, _ := matchingNamespaces(m.Spec.NamespaceSelector, d.FS, d.DataDir)
 		items = append(items, daemonSetToMeta(name, m, nsNames))
 	}
+
 	return items, nil
 }
 
@@ -199,21 +227,26 @@ func (d *DaemonSet) listAll() ([]resource.ResourceMeta, error) {
 // directory under <dataDir>/daemonsets/<dsName>/, indicating a prior deployment.
 func (d *DaemonSet) deployedNamespaces(dsName string) ([]string, error) {
 	dsDir := d.ResourceDir(dsName)
+
 	entries, err := d.FS.ReadDir(dsDir)
 	if err != nil {
 		// Dir may not exist yet for a brand-new daemonset.
 		if ok, _ := d.FS.Exists(dsDir); !ok {
 			return nil, nil
 		}
+
 		return nil, fmt.Errorf("read daemonset dir: %w", err)
 	}
+
 	var names []string
+
 	for _, entry := range entries {
 		composePath := filepath.Join(dsDir, entry, "docker-compose.yml")
 		if ok, _ := d.FS.Exists(composePath); ok {
 			names = append(names, entry)
 		}
 	}
+
 	return names, nil
 }
 
@@ -221,14 +254,17 @@ func (d *DaemonSet) deployedNamespaces(dsName string) ([]string, error) {
 // filtering. Used during cleanup to reach namespaces that no longer match.
 func (d *DaemonSet) loadNamespace(ns string) (*NamespaceManifest, error) {
 	path := filepath.Join(d.DataDir, "namespaces", ns, ".namespace.yaml")
+
 	data, err := d.FS.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("namespace %q not found", ns)
 	}
+
 	var m NamespaceManifest
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
+
 	return &m, nil
 }
 
@@ -243,11 +279,13 @@ func (d *DaemonSet) stopInNamespace(dsName, ns string) error {
 	} else {
 		target := nsMeta.Spec.sshTarget()
 		remoteDir := nsMeta.Spec.remoteBaseDir() + "/daemonsets/" + dsName
+
 		sshClient := ssh.NewClient(target)
 		if _, checkErr := sshClient.RunOutput("test -d " + remoteDir); checkErr == nil {
 			if err := sshClient.Run("cd " + remoteDir + " && docker compose down"); err != nil {
 				return exitErr(exitcode.Failure, fmt.Errorf("docker compose down in %q: %w", ns, err))
 			}
+
 			if err := sshClient.Run("rm -rf " + remoteDir); err != nil {
 				return exitErr(exitcode.Failure, fmt.Errorf("remove remote files in %q: %w", ns, err))
 			}
@@ -259,6 +297,7 @@ func (d *DaemonSet) stopInNamespace(dsName, ns string) error {
 	if err := d.FS.RemoveAll(localDir); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("remove local compose dir for %q: %w", ns, err))
 	}
+
 	return nil
 }
 
@@ -281,9 +320,11 @@ func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, fi
 		if svc.Environment.Values == nil {
 			svc.Environment.Values = make(map[string]string)
 		}
+
 		if svc.Labels.Values == nil {
 			svc.Labels.Values = make(map[string]string)
 		}
+
 		services[svcName] = svc
 	}
 
@@ -294,6 +335,7 @@ func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, fi
 				delete(svc.Labels.Values, k)
 			}
 		}
+
 		svc.Labels.Values["walheim.managed"] = "true"
 		svc.Labels.Values["walheim.namespace"] = namespace
 		svc.Labels.Values["walheim.daemonset"] = dsName
@@ -302,8 +344,10 @@ func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, fi
 
 	// Load and inject envFrom (lower precedence — only if key not present).
 	for _, entry := range m.Spec.EnvFrom {
-		var kvMap map[string]string
-		var err error
+		var (
+			kvMap map[string]string
+			err   error
+		)
 
 		if entry.SecretRef != nil {
 			kvMap, err = loadSecret(namespace, entry.SecretRef.Name, filesystem, dataDir)
@@ -327,6 +371,7 @@ func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, fi
 					svc.Environment.Values[k] = v
 				}
 			}
+
 			services[svcName] = svc
 		}
 	}
@@ -362,6 +407,7 @@ func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, fi
 	if err := filesystem.WriteFile(composePath, encoded); err != nil {
 		return fmt.Errorf("write docker-compose.yml: %w", err)
 	}
+
 	return nil
 }
 
@@ -375,8 +421,10 @@ func (d *DaemonSet) runGet(opts registry.OperationOpts) error {
 		if err != nil {
 			output.Errorf(jsonMode, "NotFound",
 				fmt.Sprintf("daemonset %q not found", opts.Name), "", nil, false)
+
 			return err
 		}
+
 		return output.PrintOne(meta, jsonMode)
 	}
 
@@ -384,10 +432,12 @@ func (d *DaemonSet) runGet(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if len(items) == 0 {
 		output.PrintEmpty("daemonsets", "", jsonMode, opts.Quiet)
 		return nil
 	}
+
 	return output.PrintList(items, []string{"NAME", "IMAGE", "SELECTOR", "NAMESPACES"}, jsonMode, opts.Quiet)
 }
 
@@ -400,6 +450,7 @@ func (d *DaemonSet) runApply(opts registry.OperationOpts) error {
 		msg := "--file (-f) is required for 'apply daemonset'"
 		output.Errorf(jsonMode, "UsageError", msg,
 			"whctl apply daemonset <name> -f <path>", nil, false)
+
 		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
 	}
 
@@ -428,7 +479,9 @@ func (d *DaemonSet) runApply(opts registry.OperationOpts) error {
 		if exists {
 			verb = "update"
 		}
+
 		fmt.Printf("Would %s daemonset %q\n", verb, name)
+
 		return nil
 	}
 
@@ -436,14 +489,17 @@ func (d *DaemonSet) runApply(opts registry.OperationOpts) error {
 		if err := d.EnsureDir(name); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if err := d.WriteManifest(name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Created daemonset %q\n", name)
 	} else {
 		if err := d.WriteManifest(name, &m); err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		fmt.Printf("Updated daemonset %q\n", name)
 	}
 
@@ -458,9 +514,11 @@ func (d *DaemonSet) runDelete(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if !exists {
 		msg := fmt.Sprintf("daemonset %q not found", name)
 		output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 		return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 	}
 
@@ -483,6 +541,7 @@ func (d *DaemonSet) runDelete(opts registry.OperationOpts) error {
 	}
 
 	fmt.Printf("Deleted daemonset %q\n", name)
+
 	return nil
 }
 
@@ -504,21 +563,26 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	desired := make(map[string]bool, len(nsNames))
 	for _, ns := range nsNames {
 		desired[ns] = true
 	}
+
 	for _, ns := range deployed {
 		if desired[ns] {
 			continue
 		}
+
 		if opts.DryRun {
 			fmt.Printf("Would remove daemonset %q from namespace %q (no longer selected)\n", name, ns)
 			continue
 		}
+
 		if err := d.stopInNamespace(name, ns); err != nil {
 			return err
 		}
+
 		fmt.Printf("Removed daemonset %q from namespace %q (no longer selected)\n", name, ns)
 	}
 
@@ -549,6 +613,7 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 		}
 
 		sshClient := ssh.NewClient(target)
+
 		cmd := "cd " + remoteDir + " && docker compose up -d --remove-orphans"
 		if err := sshClient.Run(cmd); err != nil {
 			return exitErr(exitcode.Failure, fmt.Errorf("docker compose up in %q: %w", ns, err))
@@ -556,6 +621,7 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 
 		fmt.Printf("Started daemonset %q in namespace %q\n", name, ns)
 	}
+
 	return nil
 }
 
@@ -568,6 +634,7 @@ func (d *DaemonSet) runStop(opts registry.OperationOpts) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
 	if len(deployed) == 0 {
 		fmt.Printf("Daemonset %q is not deployed anywhere\n", name)
 		return nil
@@ -582,8 +649,10 @@ func (d *DaemonSet) runStop(opts registry.OperationOpts) error {
 		if err := d.stopInNamespace(name, ns); err != nil {
 			return err
 		}
+
 		fmt.Printf("Stopped daemonset %q in namespace %q\n", name, ns)
 	}
+
 	return nil
 }
 
@@ -601,11 +670,14 @@ func (d *DaemonSet) runDoctor(opts registry.OperationOpts) error {
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}
+
 		if !exists {
 			msg := fmt.Sprintf("daemonset %q not found", opts.Name)
 			output.Errorf(jsonMode, "NotFound", msg, "", nil, false)
+
 			return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 		}
+
 		names = []string{opts.Name}
 	}
 
@@ -616,10 +688,13 @@ func (d *DaemonSet) runDoctor(opts registry.OperationOpts) error {
 	if jsonMode {
 		return rep.PrintJSON()
 	}
+
 	rep.PrintHuman(opts.Quiet)
+
 	if rep.HasErrors() {
 		return exitErr(exitcode.Failure, fmt.Errorf("doctor found errors"))
 	}
+
 	return nil
 }
 

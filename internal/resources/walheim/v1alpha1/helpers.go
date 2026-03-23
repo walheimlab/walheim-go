@@ -15,21 +15,25 @@ func readInput(filePath string, filesystem fs.FS) ([]byte, error) {
 	if filePath == "-" {
 		return readStdin()
 	}
+
 	return filesystem.ReadFile(filePath)
 }
 
 func readStdin() ([]byte, error) {
 	var buf []byte
+
 	tmp := make([]byte, 512)
 	for {
 		n, err := os.Stdin.Read(tmp)
 		if n > 0 {
 			buf = append(buf, tmp[:n]...)
 		}
+
 		if err != nil {
 			break
 		}
 	}
+
 	return buf, nil
 }
 
@@ -41,16 +45,21 @@ func promptConfirm(yes bool, prompt string) error {
 	if yes {
 		return nil
 	}
+
 	fi, err := os.Stdin.Stat()
 	if err != nil || (fi.Mode()&os.ModeCharDevice) == 0 {
 		return exitcode.New(exitcode.UsageError,
 			fmt.Errorf("stdin is not a TTY; pass --yes to confirm destructive operations"))
 	}
+
 	fmt.Fprintf(os.Stderr, "%s [y/N] ", prompt)
+
 	var answer string
+
 	_, _ = fmt.Fscan(os.Stdin, &answer)
 	if strings.ToLower(strings.TrimSpace(answer)) != "y" {
 		return fmt.Errorf("aborted")
 	}
+
 	return nil
 }

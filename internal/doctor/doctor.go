@@ -64,6 +64,7 @@ func (r *Report) Infof(resource, check, format string, args ...any) {
 func (r *Report) Findings() []Finding {
 	out := make([]Finding, len(r.findings))
 	copy(out, r.findings)
+
 	return out
 }
 
@@ -74,6 +75,7 @@ func (r *Report) HasErrors() bool {
 			return true
 		}
 	}
+
 	return false
 }
 
@@ -89,6 +91,7 @@ func (r *Report) Counts() (errors, warnings, infos int) {
 			infos++
 		}
 	}
+
 	return
 }
 
@@ -98,6 +101,7 @@ func (r *Report) PrintHuman(quiet bool) {
 		if !quiet {
 			fmt.Println("No issues found.")
 		}
+
 		return
 	}
 
@@ -105,14 +109,17 @@ func (r *Report) PrintHuman(quiet bool) {
 	if !quiet {
 		_, _ = fmt.Fprintln(w, "SEVERITY\tRESOURCE\tCHECK\tMESSAGE")
 	}
+
 	for _, f := range r.findings {
 		_, _ = fmt.Fprintf(w, "%s\t%s\t%s\t%s\n",
 			strings.ToUpper(string(f.Severity)), f.Resource, f.Check, f.Message)
 	}
+
 	_ = w.Flush()
 
 	if !quiet {
 		errors, warnings, infos := r.Counts()
+
 		fmt.Println()
 		fmt.Printf("Summary: %d error(s), %d warning(s), %d info(s)\n", errors, warnings, infos)
 	}
@@ -121,6 +128,7 @@ func (r *Report) PrintHuman(quiet bool) {
 // PrintJSON writes findings as a JSON object with a findings array and summary.
 func (r *Report) PrintJSON() error {
 	errors, warnings, infos := r.Counts()
+
 	out := map[string]any{
 		"findings": r.findings,
 		"summary": map[string]int{
@@ -132,8 +140,10 @@ func (r *Report) PrintJSON() error {
 	if r.findings == nil {
 		out["findings"] = []Finding{}
 	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
+
 	return enc.Encode(out)
 }
 

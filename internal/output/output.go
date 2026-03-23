@@ -37,6 +37,7 @@ func Errorf(jsonMode bool, code, message, suggestion string, input map[string]st
 		_ = enc.Encode(payload)
 	} else {
 		fmt.Fprintf(os.Stderr, "Error: %s\n", message)
+
 		if suggestion != "" {
 			fmt.Fprintf(os.Stderr, "Hint:  %s\n", suggestion)
 		}
@@ -60,12 +61,15 @@ func PrintList(items []resource.ResourceMeta, columns []string, jsonMode, quiet 
 	if jsonMode {
 		return printListJSON(items, columns)
 	}
+
 	if quiet {
 		for _, item := range items {
 			fmt.Println(item.Name)
 		}
+
 		return nil
 	}
+
 	return printListTable(items, columns)
 }
 
@@ -76,6 +80,7 @@ func PrintOne(item resource.ResourceMeta, jsonMode bool) error {
 		obj := flattenMeta(item)
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
+
 		return enc.Encode(obj)
 	}
 
@@ -84,7 +89,9 @@ func PrintOne(item resource.ResourceMeta, jsonMode bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
+
 	fmt.Print(string(data))
+
 	return nil
 }
 
@@ -97,9 +104,11 @@ func PrintEmpty(kind, namespace string, jsonMode, quiet bool) {
 		fmt.Println("[]")
 		return
 	}
+
 	if quiet {
 		return
 	}
+
 	if namespace != "" {
 		fmt.Fprintf(os.Stderr, "No %s found in namespace %q\n", kind, namespace)
 	} else {
@@ -110,6 +119,7 @@ func PrintEmpty(kind, namespace string, jsonMode, quiet bool) {
 // printListTable renders items as a tab-separated table with headers.
 func printListTable(items []resource.ResourceMeta, columns []string) error {
 	w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+
 	defer func() { _ = w.Flush() }()
 
 	// Print header
@@ -129,6 +139,7 @@ func printListTable(items []resource.ResourceMeta, columns []string) error {
 				row[i] = lookupSummary(item.Summary, col)
 			}
 		}
+
 		_, _ = fmt.Fprintln(w, strings.Join(row, "\t"))
 	}
 
@@ -141,8 +152,10 @@ func printListJSON(items []resource.ResourceMeta, columns []string) error {
 	for i, item := range items {
 		result[i] = flattenMeta(item)
 	}
+
 	enc := json.NewEncoder(os.Stdout)
 	enc.SetIndent("", "  ")
+
 	return enc.Encode(result)
 }
 
@@ -152,13 +165,16 @@ func flattenMeta(item resource.ResourceMeta) map[string]any {
 	if item.Namespace != "" {
 		obj["namespace"] = item.Namespace
 	}
+
 	obj["name"] = item.Name
 	for k, v := range item.Summary {
 		obj[strings.ToLower(k)] = v
 	}
+
 	if len(item.Labels) > 0 {
 		obj["labels"] = item.Labels
 	}
+
 	return obj
 }
 
@@ -174,5 +190,6 @@ func lookupSummary(summary map[string]string, key string) string {
 			return v
 		}
 	}
+
 	return ""
 }
