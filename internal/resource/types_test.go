@@ -33,7 +33,7 @@ func TestKindInfo_APIVersion(t *testing.T) {
 	}{
 		{"walheim", "v1alpha1", "walheim/v1alpha1"},
 		{"apps", "v1", "apps/v1"},
-		{"", "v1", "/v1"},
+		{"", "v1", "v1"},
 	}
 	for _, tc := range cases {
 		k := resource.KindInfo{Group: tc.group, Version: tc.version}

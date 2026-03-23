@@ -19,8 +19,8 @@ import (
 // ── KindInfo ──────────────────────────────────────────────────────────────────
 
 var secretKind = resource.KindInfo{
-	Group:   "walheim",
-	Version: "v1alpha1",
+	Group:   "",
+	Version: "v1",
 	Kind:    "Secret",
 	Plural:  "secrets",
 	Aliases: []string{},

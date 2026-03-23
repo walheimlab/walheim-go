@@ -4,10 +4,11 @@ import "strings"
 
 // KindInfo describes a resource type's identity and names.
 // Group + Version + Kind form the GVK, matching the Kubernetes convention.
-// APIVersion() returns "group/version" (e.g. "walheim/v1alpha1").
+// APIVersion() returns "group/version" (e.g. "walheim/v1alpha1") or just
+// "version" for core-group resources where Group is empty (e.g. "v1").
 type KindInfo struct {
-	Group   string   // e.g. "walheim"
-	Version string   // e.g. "v1alpha1"
+	Group   string   // e.g. "walheim"; empty string for core-group resources
+	Version string   // e.g. "v1alpha1" or "v1"
 	Kind    string   // e.g. "Namespace" (PascalCase, singular)
 	Plural  string   // e.g. "namespaces"
 	Aliases []string // e.g. ["ns"]
@@ -20,8 +21,14 @@ func (k KindInfo) Singular() string {
 	return strings.ToLower(k.Kind)
 }
 
-// APIVersion returns the "group/version" string written in manifest apiVersion fields.
+// APIVersion returns the apiVersion string written in manifest files.
+// For core-group resources (Group == ""), returns just the version (e.g. "v1").
+// For all others, returns "group/version" (e.g. "walheim/v1alpha1").
 func (k KindInfo) APIVersion() string {
+	if k.Group == "" {
+		return k.Version
+	}
+
 	return k.Group + "/" + k.Version
 }
 

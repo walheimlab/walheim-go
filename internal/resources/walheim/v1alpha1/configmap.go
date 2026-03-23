@@ -18,8 +18,8 @@ import (
 // ── KindInfo ──────────────────────────────────────────────────────────────────
 
 var configMapKind = resource.KindInfo{
-	Group:   "walheim",
-	Version: "v1alpha1",
+	Group:   "",
+	Version: "v1",
 	Kind:    "ConfigMap",
 	Plural:  "configmaps",
 	Aliases: []string{"cm"},
