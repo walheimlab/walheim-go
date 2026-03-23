@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -12,6 +13,8 @@ import (
 	"github.com/walheimlab/walheim-go/internal/config"
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/fs"
+	"github.com/walheimlab/walheim-go/internal/registry"
+	"github.com/walheimlab/walheim-go/internal/resource"
 )
 
 // newContextCmd builds the `whctl context` subcommand tree.
@@ -32,6 +35,7 @@ Use "whctl context new" to add a context or "whctl context use" to switch.`,
 	ctx.AddCommand(newContextNewCmd(gf))
 	ctx.AddCommand(newContextDeleteCmd(gf))
 	ctx.AddCommand(newContextCurrentCmd(gf))
+	ctx.AddCommand(newContextExportCmd(gf))
 
 	return ctx
 }
@@ -277,6 +281,95 @@ func runContextNewS3(gf *GlobalFlags, name, endpoint, region, bucket, prefix, ac
 	fmt.Printf("Added context %q (location: %s) and set as active\n", name, loc)
 
 	return nil
+}
+
+// newContextExportCmd implements `whctl context export`.
+func newContextExportCmd(gf *GlobalFlags) *cobra.Command {
+	return &cobra.Command{
+		Use:   "export",
+		Short: "Export all manifests from the active context as multi-document YAML",
+		Long: `Export every resource across all namespaces from the active (or --context) context.
+
+Output is multi-document YAML (documents separated by ---) written to stdout.
+Only stored manifests are included; generated files (e.g. docker-compose.yml) are excluded.`,
+		Example: "  whctl context export\n  whctl context export > backup.yaml\n  whctl context export --context prod > prod.yaml",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			filesystem, dataDir, err := resolveBackend(gf.Context, gf.Whconfig)
+			if err != nil {
+				return exitErr(exitcode.Failure, err)
+			}
+
+			// yaml.v3 Marshal prepends "---\n" to every document it writes.
+			// Strip it from stored bytes so we control the separator ourselves,
+			// ensuring exactly one "---\n" before each document.
+			emit := func(data []byte) error {
+				data = bytes.TrimPrefix(data, []byte("---\n"))
+
+				if _, err := fmt.Fprintf(os.Stdout, "---\n%s", data); err != nil {
+					return err
+				}
+
+				return nil
+			}
+
+			for _, entry := range registry.AllEntries() {
+				handler := entry.Registration.Factory(dataDir, filesystem)
+
+				if entry.IsCluster() {
+					cl, ok := handler.(resource.ClusterLister)
+					if !ok {
+						continue
+					}
+
+					names, err := cl.ListNames()
+					if err != nil {
+						return exitErr(exitcode.Failure, fmt.Errorf("list %s: %w", entry.Registration.Info.Plural, err))
+					}
+
+					for _, name := range names {
+						data, err := cl.ReadBytes(name)
+						if err != nil {
+							return exitErr(exitcode.Failure, err)
+						}
+
+						if err := emit(data); err != nil {
+							return exitErr(exitcode.Failure, err)
+						}
+					}
+				} else {
+					nsl, ok := handler.(resource.NSLister)
+					if !ok {
+						continue
+					}
+
+					namespaces, err := nsl.ValidNamespaces()
+					if err != nil {
+						return exitErr(exitcode.Failure, fmt.Errorf("list namespaces: %w", err))
+					}
+
+					for _, ns := range namespaces {
+						names, err := nsl.ListNames(ns)
+						if err != nil {
+							return exitErr(exitcode.Failure, fmt.Errorf("list %s in %s: %w", entry.Registration.Info.Plural, ns, err))
+						}
+
+						for _, name := range names {
+							data, err := nsl.ReadBytes(ns, name)
+							if err != nil {
+								return exitErr(exitcode.Failure, err)
+							}
+
+							if err := emit(data); err != nil {
+								return exitErr(exitcode.Failure, err)
+							}
+						}
+					}
+				}
+			}
+
+			return nil
+		},
+	}
 }
 
 // loadOrInitConfig tries to load the existing config; if missing, initialises a fresh one.
