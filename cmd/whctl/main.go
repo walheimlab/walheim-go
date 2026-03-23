@@ -126,7 +126,6 @@ func buildVerbCommand(verb string, gf *GlobalFlags) *cobra.Command {
 	}
 
 	for _, e := range declaringEntries {
-		e := e
 		op := e.FindOperation(verb)
 		info := e.Registration.Info
 
@@ -134,7 +133,6 @@ func buildVerbCommand(verb string, gf *GlobalFlags) *cobra.Command {
 		// `whctl get -h` stays generic and never mentions resource names.
 		// They are still fully routable: `whctl get apps -h` works correctly.
 		for _, kindName := range append([]string{info.Plural, info.Singular()}, info.Aliases...) {
-			kindName := kindName
 			sub := newKindCmd(verb, kindName, e, op, gf)
 			sub.Hidden = true
 			verbCmd.AddCommand(sub)

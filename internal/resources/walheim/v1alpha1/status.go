@@ -40,7 +40,6 @@ func (a *App) prefetchStatus(namespaces []string) map[string]containerStatus {
 	var wg sync.WaitGroup
 
 	for _, p := range pairs {
-		p := p
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

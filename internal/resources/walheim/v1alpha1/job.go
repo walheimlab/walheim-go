@@ -113,7 +113,6 @@ func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
 	var wg sync.WaitGroup
 
 	for _, p := range pairs {
-		p := p
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

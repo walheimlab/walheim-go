@@ -72,16 +72,7 @@ func (c *Client) Exec(cmd string, tty bool) error {
 
 // TestConnection checks if SSH is reachable. Returns true/false (no error propagated).
 func (c *Client) TestConnection() bool {
-	args := []string{
-		"-o", "ConnectTimeout=" + strconv.Itoa(c.ConnectTimeout),
-		"-o", "BatchMode=yes",
-		"-o", "StrictHostKeyChecking=accept-new",
-		c.RemoteHost,
-		"true",
-	}
-
-	cmd := exec.Command("ssh", args...)
-	return cmd.Run() == nil
+	return exec.Command("ssh", c.buildArgs("true", false)...).Run() == nil
 }
 
 // buildArgs returns the ssh argument slice for the given remote command.
