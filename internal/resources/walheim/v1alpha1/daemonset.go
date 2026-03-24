@@ -734,8 +734,9 @@ func (d *DaemonSet) doctorDaemonSet(rep *doctor.Report, name string) {
 
 func registerDaemonSet() {
 	registry.Register(registry.Registration{
-		Info:  daemonSetKind,
-		Scope: registry.ClusterScoped,
+		Info:       daemonSetKind,
+		Scope:      registry.ClusterScoped,
+		ApplyOrder: registry.ApplyOrderClusterWorkload,
 		Operations: []registry.OperationDef{
 			{
 				Verb:         "get",

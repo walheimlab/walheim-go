@@ -434,8 +434,9 @@ func registerSecret() {
 	}
 
 	registry.Register(registry.Registration{
-		Info:  secretKind,
-		Scope: registry.NamespaceScoped,
+		Info:       secretKind,
+		Scope:      registry.NamespaceScoped,
+		ApplyOrder: registry.ApplyOrderNamespaceMetadata,
 		Operations: []registry.OperationDef{
 			{
 				Verb:         "get",

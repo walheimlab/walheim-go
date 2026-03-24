@@ -970,8 +970,9 @@ func registerApp() {
 	}
 
 	registry.Register(registry.Registration{
-		Info:  appKind,
-		Scope: registry.NamespaceScoped,
+		Info:       appKind,
+		Scope:      registry.NamespaceScoped,
+		ApplyOrder: registry.ApplyOrderNamespaceWorkload,
 		Operations: []registry.OperationDef{
 			{
 				Verb:         "get",

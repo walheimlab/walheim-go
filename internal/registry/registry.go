@@ -16,6 +16,23 @@ const (
 	NamespaceScoped Scope = iota
 )
 
+// ApplyOrder controls the order in which resources are applied when loading
+// from a multi-resource manifest. Lower values are applied first.
+type ApplyOrder int
+
+const (
+	// ApplyOrderNamespace — namespace definitions must exist before anything else.
+	ApplyOrderNamespace ApplyOrder = 1
+	// ApplyOrderClusterMetadata — cluster-scoped metadata resources (e.g. ClusterSecret).
+	ApplyOrderClusterMetadata ApplyOrder = 2
+	// ApplyOrderClusterWorkload — cluster-scoped workloads (e.g. DaemonSet).
+	ApplyOrderClusterWorkload ApplyOrder = 3
+	// ApplyOrderNamespaceMetadata — namespace-scoped metadata resources (e.g. ConfigMap, Secret).
+	ApplyOrderNamespaceMetadata ApplyOrder = 4
+	// ApplyOrderNamespaceWorkload — namespace-scoped workloads (e.g. App, Job).
+	ApplyOrderNamespaceWorkload ApplyOrder = 5
+)
+
 // NSHandling controls how -n and -A flags behave for a given operation.
 type NSHandling int
 
@@ -74,6 +91,7 @@ type Factory func(dataDir string, filesystem fs.FS) resource.Handler
 type Registration struct {
 	Info       resource.KindInfo
 	Scope      Scope
+	ApplyOrder ApplyOrder
 	Operations []OperationDef
 	Hooks      Hooks
 	// SummaryColumns is the ordered list of summary field names for table output.

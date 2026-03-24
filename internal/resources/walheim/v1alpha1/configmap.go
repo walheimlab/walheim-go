@@ -410,8 +410,9 @@ func registerConfigMap() {
 	}
 
 	registry.Register(registry.Registration{
-		Info:  configMapKind,
-		Scope: registry.NamespaceScoped,
+		Info:       configMapKind,
+		Scope:      registry.NamespaceScoped,
+		ApplyOrder: registry.ApplyOrderNamespaceMetadata,
 		Operations: []registry.OperationDef{
 			{
 				Verb:         "get",

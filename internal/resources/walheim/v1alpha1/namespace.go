@@ -716,8 +716,9 @@ func (n *Namespace) doctorNamespace(rep *doctor.Report, name string) {
 
 func registerNamespace() {
 	registry.Register(registry.Registration{
-		Info:  namespaceKind,
-		Scope: registry.ClusterScoped,
+		Info:       namespaceKind,
+		Scope:      registry.ClusterScoped,
+		ApplyOrder: registry.ApplyOrderNamespace,
 		Operations: []registry.OperationDef{
 			{
 				Verb:         "get",

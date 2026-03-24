@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
@@ -424,6 +425,17 @@ func runFileDispatch(verb string, cmd *cobra.Command, gf *GlobalFlags) error {
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
+
+	sort.SliceStable(envelopes, func(i, j int) bool {
+		ei := registry.Get(strings.ToLower(envelopes[i].Kind))
+		ej := registry.Get(strings.ToLower(envelopes[j].Kind))
+
+		if ei == nil || ej == nil {
+			return false
+		}
+
+		return ei.Registration.ApplyOrder < ej.Registration.ApplyOrder
+	})
 
 	for _, env := range envelopes {
 		// Kind in manifests is PascalCase; registry keys are lowercase.

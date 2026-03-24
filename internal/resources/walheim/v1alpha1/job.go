@@ -738,8 +738,9 @@ func (j *Job) doctorJob(rep *doctor.Report, namespace, name string) {
 
 func registerJob() {
 	registry.Register(registry.Registration{
-		Info:  jobKind,
-		Scope: registry.NamespaceScoped,
+		Info:       jobKind,
+		Scope:      registry.NamespaceScoped,
+		ApplyOrder: registry.ApplyOrderNamespaceWorkload,
 		Operations: []registry.OperationDef{
 			{
 				Verb:         "get",
