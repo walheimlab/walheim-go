@@ -142,6 +142,17 @@ type AppManifest struct {
 	Kind       string           `yaml:"kind"`
 	Metadata   ResourceMetadata `yaml:"metadata"`
 	Spec       AppSpec          `yaml:"spec"`
+	// Status is populated at runtime and never written to storage.
+	Status *AppStatus `yaml:"status,omitempty" json:"status,omitempty"`
+}
+
+// AppStatus holds the runtime (non-persisted) status of an App.
+// It is populated during describe and never written to storage.
+type AppStatus struct {
+	State     string `json:"state" yaml:"state"`
+	Ready     string `json:"ready" yaml:"ready"`
+	Deployed  bool   `json:"deployed" yaml:"deployed"`
+	ComposePS string `json:"composePS,omitempty" yaml:"composePS,omitempty"`
 }
 
 // AppSpec holds the App-specific fields.
@@ -303,6 +314,22 @@ type DaemonSetManifest struct {
 	Kind       string           `yaml:"kind"`
 	Metadata   ResourceMetadata `yaml:"metadata"`
 	Spec       DaemonSetSpec    `yaml:"spec"`
+	// Status is populated at runtime and never written to storage.
+	Status *DaemonSetStatus `yaml:"status,omitempty" json:"status,omitempty"`
+}
+
+// DaemonSetStatus holds the runtime (non-persisted) status of a DaemonSet across namespaces.
+// It is populated during describe and never written to storage.
+type DaemonSetStatus struct {
+	Namespaces []DaemonSetNamespaceStatus `json:"namespaces,omitempty" yaml:"namespaces,omitempty"`
+}
+
+// DaemonSetNamespaceStatus holds the status of a DaemonSet in one namespace.
+type DaemonSetNamespaceStatus struct {
+	Namespace string `json:"namespace" yaml:"namespace"`
+	State     string `json:"state" yaml:"state"`
+	Ready     string `json:"ready" yaml:"ready"`
+	Deployed  bool   `json:"deployed" yaml:"deployed"`
 }
 
 // DaemonSetSpec holds the DaemonSet-specific fields.

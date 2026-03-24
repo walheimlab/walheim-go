@@ -183,13 +183,17 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 	if opts.Name != "" {
 		namespace := opts.Namespace
 
-		meta, _, err := a.getOne(namespace, opts.Name)
+		meta, m, err := a.getOne(namespace, opts.Name)
 		if err != nil {
 			output.Errorf(jsonMode, "NotFound",
 				fmt.Sprintf("app %q not found in namespace %q", opts.Name, namespace), "", nil, false)
 
 			return err
 		}
+
+		statusMap := a.prefetchStatus([]string{namespace})
+		state, ready := aggregateStatus(statusMap, namespace, opts.Name)
+		m.Status = &AppStatus{State: state, Ready: ready}
 
 		return output.PrintOne(meta, opts.Output)
 	}
@@ -388,12 +392,27 @@ func (a *App) runDelete(opts registry.OperationOpts) error {
 	return nil
 }
 
+// appDescribeResult is the structured output for describe app, including runtime status.
+type appDescribeResult struct {
+	APIVersion string          `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string          `json:"kind" yaml:"kind"`
+	Metadata   appDescribeMeta `json:"metadata" yaml:"metadata"`
+	Status     *AppStatus      `json:"status,omitempty" yaml:"status,omitempty"`
+}
+
+type appDescribeMeta struct {
+	Name      string   `json:"name" yaml:"name"`
+	Namespace string   `json:"namespace" yaml:"namespace"`
+	Services  []string `json:"services,omitempty" yaml:"services,omitempty"`
+	SSH       string   `json:"ssh" yaml:"ssh"`
+}
+
 func (a *App) runDescribe(opts registry.OperationOpts) error {
 	jsonMode := opts.Output == "json"
 	namespace := opts.Namespace
 	name := opts.Name
 
-	meta, m, err := a.getOne(namespace, name)
+	_, m, err := a.getOne(namespace, name)
 	if err != nil {
 		output.Errorf(jsonMode, "NotFound",
 			fmt.Sprintf("app %q not found in namespace %q", name, namespace), "", nil, false)
@@ -407,13 +426,12 @@ func (a *App) runDescribe(opts registry.OperationOpts) error {
 	}
 
 	target := nsMeta.Spec.sshTarget()
-
 	client := ssh.NewClient(target)
 
 	// Check remote dir
+	remoteAppDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
 	remoteExists := false
 
-	remoteAppDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
 	if _, checkErr := client.RunOutput("test -d " + remoteAppDir + " && echo yes"); checkErr == nil {
 		remoteExists = true
 	}
@@ -424,29 +442,64 @@ func (a *App) runDescribe(opts registry.OperationOpts) error {
 		composePS, _ = client.RunOutput("cd " + remoteAppDir + " && docker compose ps 2>/dev/null")
 	}
 
-	if jsonMode {
-		result := map[string]any{
-			"name":            name,
-			"namespace":       namespace,
-			"image":           meta.Summary["IMAGE"],
-			"status":          meta.Summary["STATUS"],
-			"ready":           meta.Summary["READY"],
-			"ssh":             target,
-			"remote_deployed": remoteExists,
-			"compose_ps":      strings.TrimSpace(composePS),
-			"services":        serviceNames(m),
-		}
-		enc := json.NewEncoder(os.Stdout)
-		enc.SetIndent("", "  ")
+	// Fetch live container status
+	statusMap := a.prefetchStatus([]string{namespace})
+	state, ready := aggregateStatus(statusMap, namespace, name)
 
-		return enc.Encode(result)
+	status := &AppStatus{
+		State:     state,
+		Ready:     ready,
+		Deployed:  remoteExists,
+		ComposePS: strings.TrimSpace(composePS),
 	}
 
+	if opts.Output == "json" || opts.Output == "yaml" {
+		result := appDescribeResult{
+			APIVersion: m.APIVersion,
+			Kind:       m.Kind,
+			Metadata: appDescribeMeta{
+				Name:      name,
+				Namespace: namespace,
+				Services:  serviceNames(m),
+				SSH:       target,
+			},
+			Status: status,
+		}
+
+		if opts.Output == "json" {
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+
+			return enc.Encode(result)
+		}
+
+		data, err := yamlutil.Marshal(result)
+		if err != nil {
+			return err
+		}
+
+		fmt.Print(string(data))
+
+		return nil
+	}
+
+	// Human output
 	fmt.Printf("Name:       %s\n", name)
 	fmt.Printf("Namespace:  %s\n", namespace)
 	fmt.Printf("SSH Target: %s\n", target)
 	fmt.Println()
 
+	fmt.Printf("Status:     %s\n", status.State)
+	fmt.Printf("Ready:      %s\n", status.Ready)
+	fmt.Printf("Remote:     ")
+
+	if remoteExists {
+		fmt.Println("deployed")
+	} else {
+		fmt.Println("not deployed")
+	}
+
+	fmt.Println()
 	fmt.Println("Services:")
 
 	for _, svcName := range serviceNames(m) {
@@ -460,21 +513,13 @@ func (a *App) runDescribe(opts registry.OperationOpts) error {
 		fmt.Printf("  %-20s %s\n", svcName, img)
 	}
 
-	fmt.Println()
+	if ps := strings.TrimSpace(composePS); ps != "" {
+		fmt.Println()
+		fmt.Println("docker compose ps:")
 
-	if remoteExists {
-		fmt.Println("Remote: deployed")
-
-		if ps := strings.TrimSpace(composePS); ps != "" {
-			fmt.Println()
-			fmt.Println("docker compose ps:")
-
-			for _, line := range strings.Split(ps, "\n") {
-				fmt.Printf("  %s\n", line)
-			}
+		for _, line := range strings.Split(ps, "\n") {
+			fmt.Printf("  %s\n", line)
 		}
-	} else {
-		fmt.Println("Remote: not deployed")
 	}
 
 	return nil
