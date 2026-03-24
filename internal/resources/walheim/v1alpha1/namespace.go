@@ -172,6 +172,7 @@ func (n *Namespace) countLocalResources(nsName string) NamespaceResourceCounts {
 // localAppNames returns the set of app names in the local context for nsName.
 func (n *Namespace) localAppNames(nsName string) map[string]struct{} {
 	nsDir := n.ResourceDir(nsName)
+
 	entries, err := n.FS.ReadDir(filepath.Join(nsDir, "apps"))
 	if err != nil {
 		return nil
@@ -596,6 +597,7 @@ func namespaceCollectStatus(client *ssh.Client, nsName string, localApps map[str
 	appMap := make(map[string]*appAgg)
 
 	var appOrder []string
+
 	var containers []NamespaceContainerStatus
 
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
