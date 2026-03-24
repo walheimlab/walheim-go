@@ -193,43 +193,56 @@ func parseDocuments(data []byte) ([]Envelope, error) {
 }
 
 // expandList extracts individual Envelopes from the items of a kind:List document.
+// It traverses the yaml.Node content directly to avoid the yaml.Node.Kind uint32
+// field conflicting with the YAML "kind" string key when using struct decoding.
 func expandList(node *yaml.Node) ([]Envelope, error) {
-	type listDoc struct {
-		Items []*yaml.Node `yaml:"items"`
+	// A DocumentNode wraps a single MappingNode; unwrap if needed.
+	mapping := node
+	if node.Kind == yaml.DocumentNode && len(node.Content) > 0 {
+		mapping = node.Content[0]
 	}
 
-	var l listDoc
-
-	if err := node.Decode(&l); err != nil {
-		return nil, fmt.Errorf("decode list items: %w", err)
-	}
-
-	var result []Envelope
-
-	for _, item := range l.Items {
-		var hdr envelopeHeader
-
-		if err := item.Decode(&hdr); err != nil {
-			return nil, fmt.Errorf("decode list item header: %w", err)
-		}
-
-		if hdr.Kind == "" {
+	// Walk key-value pairs of the mapping to find "items".
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value != "items" {
 			continue
 		}
 
-		raw, err := yaml.Marshal(item)
-		if err != nil {
-			return nil, err
+		seq := mapping.Content[i+1]
+
+		var result []Envelope
+
+		for _, item := range seq.Content {
+			var hdr envelopeHeader
+
+			if err := item.Decode(&hdr); err != nil {
+				return nil, fmt.Errorf("decode list item header: %w", err)
+			}
+
+			if hdr.Kind == "" {
+				continue
+			}
+
+			// Wrap item in a document node so yaml.Marshal produces a
+			// standalone YAML document the resource handlers can Unmarshal.
+			doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{item}}
+
+			raw, err := yaml.Marshal(doc)
+			if err != nil {
+				return nil, err
+			}
+
+			result = append(result, Envelope{
+				APIVersion: hdr.APIVersion,
+				Kind:       hdr.Kind,
+				Name:       hdr.Metadata.Name,
+				Namespace:  hdr.Metadata.Namespace,
+				Raw:        raw,
+			})
 		}
 
-		result = append(result, Envelope{
-			APIVersion: hdr.APIVersion,
-			Kind:       hdr.Kind,
-			Name:       hdr.Metadata.Name,
-			Namespace:  hdr.Metadata.Namespace,
-			Raw:        raw,
-		})
+		return result, nil
 	}
 
-	return result, nil
+	return nil, nil
 }
