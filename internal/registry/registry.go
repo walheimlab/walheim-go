@@ -104,6 +104,11 @@ type OperationOpts struct {
 
 	// Operation-specific flags, keyed by FlagDef.Name.
 	Flags map[string]any
+
+	// RawManifest, if non-nil, is the pre-loaded document bytes for this
+	// operation. Apply handlers use this instead of reading from the "file"
+	// flag when set. Populated by the verb-level -f/--filename dispatch path.
+	RawManifest []byte
 }
 
 // String returns an operation-specific string flag value.

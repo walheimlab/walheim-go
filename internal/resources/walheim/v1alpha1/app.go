@@ -252,18 +252,25 @@ func (a *App) runApply(opts registry.OperationOpts) error {
 	namespace := opts.Namespace
 	name := opts.Name
 
-	filePath := opts.String("file")
-	if filePath == "" {
-		msg := "--file (-f) is required for 'apply app'"
-		output.Errorf(jsonMode, "UsageError", msg,
-			"whctl apply app <name> -n <namespace> -f <path>", nil, false)
+	var data []byte
+	if len(opts.RawManifest) > 0 {
+		data = opts.RawManifest
+	} else {
+		filePath := opts.String("file")
+		if filePath == "" {
+			msg := "--file (-f) is required for 'apply app'"
+			output.Errorf(jsonMode, "UsageError", msg,
+				"whctl apply app <name> -n <namespace> -f <path>", nil, false)
 
-		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
-	}
+			return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
+		}
 
-	data, err := readInput(filePath, opts.FS)
-	if err != nil {
-		return exitErr(exitcode.Failure, fmt.Errorf("read %q: %w", filePath, err))
+		var err error
+
+		data, err = readInput(filePath, opts.FS)
+		if err != nil {
+			return exitErr(exitcode.Failure, fmt.Errorf("read %q: %w", filePath, err))
+		}
 	}
 
 	var m AppManifest

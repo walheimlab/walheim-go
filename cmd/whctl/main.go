@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/walheimlab/walheim-go/internal/exitcode"
+	"github.com/walheimlab/walheim-go/internal/manifest"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/version"
 
@@ -121,12 +122,24 @@ func buildVerbCommand(verb string, gf *GlobalFlags) *cobra.Command {
 		Short:        verbShort(verb),
 		Example:      buildVerbExamples(verb, declaringEntries),
 		SilenceUsage: true,
-		// No args expected at the verb level — kind is a subcommand.
-		// RunE fires only when no subcommand matches (i.e. bare "whctl get").
+		// RunE fires when no kind subcommand matches.
+		// If -f/--filename is set, dispatch via manifest file(s).
+		// Otherwise list resource kinds that support this verb.
 		RunE: func(cmd *cobra.Command, args []string) error {
+			filenames, _ := cmd.Flags().GetStringArray("filename")
+			if len(filenames) > 0 {
+				return runFileDispatch(verb, cmd, gf)
+			}
+
 			return runListResourcesForVerb(verb, declaringEntries)
 		},
 	}
+
+	// Flags for verb-level -f/--filename dispatch (kubectl-style).
+	verbCmd.Flags().StringArrayP("filename", "f", nil, "File, directory, or URL containing resource manifest(s)")
+	verbCmd.Flags().StringP("namespace", "n", "", "Override namespace from manifest metadata")
+	verbCmd.Flags().Bool("dry-run", false, "Print what would change without making any changes")
+	verbCmd.Flags().Bool("yes", false, "Skip confirmation prompts")
 
 	for _, e := range declaringEntries {
 		op := e.FindOperation(verb)
@@ -390,6 +403,69 @@ func newActionsCmd() *cobra.Command {
 			return nil
 		},
 	}
+}
+
+// runFileDispatch loads manifests from the -f/--filename sources, infers the
+// GVK of each document, and delegates to the matching resource operation handler.
+// name and namespace are taken from manifest metadata; -n overrides namespace.
+func runFileDispatch(verb string, cmd *cobra.Command, gf *GlobalFlags) error {
+	filenames, _ := cmd.Flags().GetStringArray("filename")
+	nsOverride, _ := cmd.Flags().GetString("namespace")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	yes, _ := cmd.Flags().GetBool("yes")
+
+	filesystem, dataDir, err := resolveBackend(gf.Context, gf.Whconfig)
+	if err != nil {
+		return exitErr(exitcode.Failure, fmt.Errorf("%s", err))
+	}
+
+	envelopes, err := manifest.LoadSources(filenames, filesystem)
+	if err != nil {
+		return exitErr(exitcode.Failure, err)
+	}
+
+	for _, env := range envelopes {
+		// Kind in manifests is PascalCase; registry keys are lowercase.
+		entry := registry.Get(strings.ToLower(env.Kind))
+		if entry == nil {
+			return exitErr(exitcode.UsageError,
+				fmt.Errorf("unknown kind %q (name: %q) — is this a walheim/v1alpha1 resource?",
+					env.Kind, env.Name))
+		}
+
+		op := entry.FindOperation(verb)
+		if op == nil {
+			return exitErr(exitcode.UsageError,
+				fmt.Errorf("resource %q does not support %q",
+					entry.Registration.Info.Plural, verb))
+		}
+
+		ns := env.Namespace
+		if nsOverride != "" {
+			ns = nsOverride
+		}
+
+		handler := entry.Registration.Factory(dataDir, filesystem)
+		opts := registry.OperationOpts{
+			DataDir:     dataDir,
+			FS:          filesystem,
+			Kind:        entry.Registration.Info.Plural,
+			Name:        env.Name,
+			Namespace:   ns,
+			Output:      gf.Output,
+			Quiet:       gf.Quiet,
+			DryRun:      dryRun,
+			Yes:         yes,
+			RawManifest: env.Raw,
+			Flags:       make(map[string]any),
+		}
+
+		if err := op.Run(handler, opts); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // runListResourcesForVerb prints which resource kinds support a given verb,

@@ -259,18 +259,25 @@ func (n *Namespace) runApply(opts registry.OperationOpts) error {
 	jsonMode := opts.Output == "json"
 	name := opts.Name
 
-	filePath := opts.String("file")
-	if filePath == "" {
-		msg := "--file (-f) is required for 'apply namespace'"
-		output.Errorf(jsonMode, "UsageError", msg,
-			"whctl apply namespace <name> -f <path>", nil, false)
+	var data []byte
+	if len(opts.RawManifest) > 0 {
+		data = opts.RawManifest
+	} else {
+		filePath := opts.String("file")
+		if filePath == "" {
+			msg := "--file (-f) is required for 'apply namespace'"
+			output.Errorf(jsonMode, "UsageError", msg,
+				"whctl apply namespace <name> -f <path>", nil, false)
 
-		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
-	}
+			return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
+		}
 
-	data, err := readInput(filePath, opts.FS)
-	if err != nil {
-		return exitErr(exitcode.Failure, fmt.Errorf("read %q: %w", filePath, err))
+		var err error
+
+		data, err = readInput(filePath, opts.FS)
+		if err != nil {
+			return exitErr(exitcode.Failure, fmt.Errorf("read %q: %w", filePath, err))
+		}
 	}
 
 	var m NamespaceManifest
