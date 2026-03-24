@@ -638,8 +638,13 @@ func (a *App) runPause(opts registry.OperationOpts) error {
 		return nil
 	}
 
-	if err := sshClient.Run("cd " + remoteAppDir + " && docker compose --progress plain down"); err != nil {
-		return exitErr(exitcode.Failure, fmt.Errorf("docker compose down: %w", err))
+	// Only run compose down if the compose file is present; the dir may exist
+	// after a partial deploy that never wrote docker-compose.yml.
+	_, composeErr := sshClient.RunOutput("test -f " + remoteAppDir + "/docker-compose.yml")
+	if composeErr == nil {
+		if err := sshClient.Run("cd " + remoteAppDir + " && docker compose --progress plain down"); err != nil {
+			return exitErr(exitcode.Failure, fmt.Errorf("docker compose down: %w", err))
+		}
 	}
 
 	fmt.Printf("Paused app %q\n", name)
