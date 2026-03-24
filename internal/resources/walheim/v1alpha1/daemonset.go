@@ -20,6 +20,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/resource"
 	"github.com/walheimlab/walheim-go/internal/rsync"
 	"github.com/walheimlab/walheim-go/internal/ssh"
+	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
 // ── KindInfo & validation ─────────────────────────────────────────────────────
@@ -32,7 +33,7 @@ var daemonSetKind = resource.KindInfo{
 	Aliases: []string{"ds"},
 }
 
-func validateDaemonSetManifest(m *DaemonSetManifest, name string) error {
+func validateDaemonSetManifest(m *apiv1alpha1.DaemonSet, name string) error {
 	if m.APIVersion != daemonSetKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", daemonSetKind.APIVersion(), m.APIVersion)
 	}
@@ -41,8 +42,8 @@ func validateDaemonSetManifest(m *DaemonSetManifest, name string) error {
 		return fmt.Errorf("invalid kind: expected %q, got %q", daemonSetKind.Kind, m.Kind)
 	}
 
-	if m.Metadata.Name != name {
-		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
+	if m.Name != name {
+		return fmt.Errorf("metadata.name %q does not match argument %q", m.Name, name)
 	}
 
 	if len(m.Spec.Compose.Services) == 0 {
@@ -78,7 +79,7 @@ func (d *DaemonSet) KindInfo() resource.KindInfo { return daemonSetKind }
 
 // matchingNamespaces returns all namespace manifests whose labels match the
 // given selector, along with their names, ordered alphabetically.
-func matchingNamespaces(selector *LabelSelector, filesystem fs.FS, dataDir string) ([]*NamespaceManifest, []string, error) {
+func matchingNamespaces(selector *apiv1alpha1.LabelSelector, filesystem fs.FS, dataDir string) ([]*apiv1alpha1.Namespace, []string, error) {
 	baseDir := filepath.Join(dataDir, "namespaces")
 
 	entries, err := filesystem.ReadDir(baseDir)
@@ -96,7 +97,7 @@ func matchingNamespaces(selector *LabelSelector, filesystem fs.FS, dataDir strin
 	}
 
 	var (
-		manifests []*NamespaceManifest
+		manifests []*apiv1alpha1.Namespace
 		names     []string
 	)
 
@@ -113,12 +114,12 @@ func matchingNamespaces(selector *LabelSelector, filesystem fs.FS, dataDir strin
 			continue
 		}
 
-		var m NamespaceManifest
+		var m apiv1alpha1.Namespace
 		if err := yaml.Unmarshal(data, &m); err != nil {
 			continue
 		}
 
-		if selector.Matches(m.Metadata.Labels) {
+		if selector.Matches(m.Labels) {
 			manifests = append(manifests, &m)
 			names = append(names, entry)
 		}
@@ -129,13 +130,13 @@ func matchingNamespaces(selector *LabelSelector, filesystem fs.FS, dataDir strin
 
 // ── Typed read/list ───────────────────────────────────────────────────────────
 
-func (d *DaemonSet) parseManifest(name string) (*DaemonSetManifest, error) {
+func (d *DaemonSet) parseManifest(name string) (*apiv1alpha1.DaemonSet, error) {
 	data, err := d.ReadBytes(name)
 	if err != nil {
 		return nil, err
 	}
 
-	var m DaemonSetManifest
+	var m apiv1alpha1.DaemonSet
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse daemonset %q: %w", name, err)
 	}
@@ -146,13 +147,13 @@ func (d *DaemonSet) parseManifest(name string) (*DaemonSetManifest, error) {
 // copyDaemonSetManifest returns a deep copy of m via YAML round-trip.
 // generateDaemonSetCompose mutates its manifest argument, so each parallel
 // goroutine must work on its own copy.
-func copyDaemonSetManifest(m *DaemonSetManifest) (*DaemonSetManifest, error) {
+func copyDaemonSetManifest(m *apiv1alpha1.DaemonSet) (*apiv1alpha1.DaemonSet, error) {
 	data, err := yaml.Marshal(m)
 	if err != nil {
 		return nil, err
 	}
 
-	var cp DaemonSetManifest
+	var cp apiv1alpha1.DaemonSet
 	if err := yaml.Unmarshal(data, &cp); err != nil {
 		return nil, err
 	}
@@ -160,7 +161,7 @@ func copyDaemonSetManifest(m *DaemonSetManifest) (*DaemonSetManifest, error) {
 	return &cp, nil
 }
 
-func daemonSetToMeta(name string, m *DaemonSetManifest, matchedNS []string) resource.ResourceMeta {
+func daemonSetToMeta(name string, m *apiv1alpha1.DaemonSet, matchedNS []string) resource.ResourceMeta {
 	img := "N/A"
 
 	for _, svc := range m.Spec.Compose.Services {
@@ -190,7 +191,7 @@ func daemonSetToMeta(name string, m *DaemonSetManifest, matchedNS []string) reso
 
 	return resource.ResourceMeta{
 		Name:   name,
-		Labels: m.Metadata.Labels,
+		Labels: m.Labels,
 		Summary: map[string]string{
 			"IMAGE":      img,
 			"SELECTOR":   selector,
@@ -200,7 +201,7 @@ func daemonSetToMeta(name string, m *DaemonSetManifest, matchedNS []string) reso
 	}
 }
 
-func (d *DaemonSet) getOne(name string) (resource.ResourceMeta, *DaemonSetManifest, error) {
+func (d *DaemonSet) getOne(name string) (resource.ResourceMeta, *apiv1alpha1.DaemonSet, error) {
 	exists, err := d.Exists(name)
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
@@ -273,7 +274,7 @@ func (d *DaemonSet) deployedNamespaces(dsName string) ([]string, error) {
 
 // loadNamespace reads a namespace manifest by name without any selector
 // filtering. Used during cleanup to reach namespaces that no longer match.
-func (d *DaemonSet) loadNamespace(ns string) (*NamespaceManifest, error) {
+func (d *DaemonSet) loadNamespace(ns string) (*apiv1alpha1.Namespace, error) {
 	path := filepath.Join(d.DataDir, "namespaces", ns, ".namespace.yaml")
 
 	data, err := d.FS.ReadFile(path)
@@ -281,7 +282,7 @@ func (d *DaemonSet) loadNamespace(ns string) (*NamespaceManifest, error) {
 		return nil, fmt.Errorf("namespace %q not found", ns)
 	}
 
-	var m NamespaceManifest
+	var m apiv1alpha1.Namespace
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
@@ -298,8 +299,8 @@ func (d *DaemonSet) stopInNamespace(dsName, ns string) error {
 	if err != nil {
 		output.Warnf("cannot load namespace %q for cleanup: %v — skipping remote cleanup", ns, err)
 	} else {
-		target := nsMeta.Spec.sshTarget()
-		remoteDir := nsMeta.Spec.remoteBaseDir() + "/daemonsets/" + dsName
+		target := nsMeta.Spec.SSHTarget()
+		remoteDir := nsMeta.Spec.RemoteBaseDir() + "/daemonsets/" + dsName
 
 		sshClient := ssh.NewClient(target)
 		if _, checkErr := sshClient.RunOutput("test -d " + remoteDir); checkErr == nil {
@@ -330,7 +331,7 @@ func (d *DaemonSet) stopInNamespace(dsName, ns string) error {
 //	<dataDir>/daemonsets/<dsName>/<namespace>/docker-compose.yml
 //
 // NOTE: This function modifies m.Spec.Compose.Services in-place.
-func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, filesystem fs.FS, dataDir string) error {
+func generateDaemonSetCompose(namespace, dsName string, m *apiv1alpha1.DaemonSet, filesystem fs.FS, dataDir string) error {
 	services := m.Spec.Compose.Services
 	if services == nil {
 		return fmt.Errorf("spec.compose.services is empty")
@@ -437,10 +438,10 @@ func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, fi
 // daemonSetDescribeResult is the structured output for describe daemonset,
 // including per-namespace runtime status.
 type daemonSetDescribeResult struct {
-	APIVersion string              `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string              `json:"kind" yaml:"kind"`
-	Metadata   daemonSetDescribeMeta `json:"metadata" yaml:"metadata"`
-	Status     *DaemonSetStatus    `json:"status,omitempty" yaml:"status,omitempty"`
+	APIVersion string                         `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                         `json:"kind" yaml:"kind"`
+	Metadata   daemonSetDescribeMeta          `json:"metadata" yaml:"metadata"`
+	Status     *apiv1alpha1.DaemonSetStatus   `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 type daemonSetDescribeMeta struct {
@@ -451,24 +452,24 @@ type daemonSetDescribeMeta struct {
 
 // fetchDaemonSetStatus queries each matching namespace concurrently and returns
 // the per-namespace container status for the given daemonset.
-func (d *DaemonSet) fetchDaemonSetStatus(dsName string, nsMetas []*NamespaceManifest, nsNames []string) []DaemonSetNamespaceStatus {
-	results := make([]DaemonSetNamespaceStatus, len(nsNames))
+func (d *DaemonSet) fetchDaemonSetStatus(dsName string, nsMetas []*apiv1alpha1.Namespace, nsNames []string) []apiv1alpha1.DaemonSetNamespaceStatus {
+	results := make([]apiv1alpha1.DaemonSetNamespaceStatus, len(nsNames))
 
 	var wg sync.WaitGroup
 
 	for i, ns := range nsNames {
 		wg.Add(1)
 
-		go func(i int, ns string, nsMeta *NamespaceManifest) {
+		go func(i int, ns string, nsMeta *apiv1alpha1.Namespace) {
 			defer wg.Done()
 
-			target := nsMeta.Spec.sshTarget()
+			target := nsMeta.Spec.SSHTarget()
 			client := ssh.NewClient(target)
 
-			nsStatus := DaemonSetNamespaceStatus{Namespace: ns}
+			nsStatus := apiv1alpha1.DaemonSetNamespaceStatus{Namespace: ns}
 
 			// Check remote dir
-			remoteDir := nsMeta.Spec.remoteBaseDir() + "/daemonsets/" + dsName
+			remoteDir := nsMeta.Spec.RemoteBaseDir() + "/daemonsets/" + dsName
 			if _, err := client.RunOutput("test -d " + remoteDir + " && echo yes"); err == nil {
 				nsStatus.Deployed = true
 			}
@@ -557,7 +558,7 @@ func (d *DaemonSet) runDescribe(opts registry.OperationOpts) error {
 
 	nsStatuses := d.fetchDaemonSetStatus(name, nsMetas, nsNames)
 
-	status := &DaemonSetStatus{Namespaces: nsStatuses}
+	status := &apiv1alpha1.DaemonSetStatus{Namespaces: nsStatuses}
 
 	// Build selector display
 	selector := "(all)"
@@ -662,7 +663,7 @@ func (d *DaemonSet) runGet(opts registry.OperationOpts) error {
 		}
 
 		nsMetas, nsNames, _ := matchingNamespaces(m.Spec.NamespaceSelector, d.FS, d.DataDir)
-		m.Status = &DaemonSetStatus{Namespaces: d.fetchDaemonSetStatus(opts.Name, nsMetas, nsNames)}
+		m.Status = &apiv1alpha1.DaemonSetStatus{Namespaces: d.fetchDaemonSetStatus(opts.Name, nsMetas, nsNames)}
 
 		return output.PrintOne(meta, opts.Output)
 	}
@@ -705,7 +706,7 @@ func (d *DaemonSet) runApply(opts registry.OperationOpts) error {
 		}
 	}
 
-	var m DaemonSetManifest
+	var m apiv1alpha1.DaemonSet
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("parse manifest: %w", err))
 	}
@@ -872,7 +873,7 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 	for i, ns := range nsNames {
 		deployWg.Add(1)
 
-		go func(i int, ns string, nsMeta *NamespaceManifest) {
+		go func(i int, ns string, nsMeta *apiv1alpha1.Namespace) {
 			defer deployWg.Done()
 
 			mc, err := copyDaemonSetManifest(m)
@@ -886,9 +887,9 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 				return
 			}
 
-			target := nsMeta.Spec.sshTarget()
+			target := nsMeta.Spec.SSHTarget()
 			localDir := filepath.Join(d.DataDir, "daemonsets", name, ns)
-			remoteDir := nsMeta.Spec.remoteBaseDir() + "/daemonsets/" + name
+			remoteDir := nsMeta.Spec.RemoteBaseDir() + "/daemonsets/" + name
 
 			if err := rsync.NewSyncer().Sync(d.FS, localDir, target, remoteDir); err != nil {
 				deployErrs[i] = exitErr(exitcode.Failure, fmt.Errorf("rsync to %q: %w", ns, err))
@@ -1015,7 +1016,7 @@ func (d *DaemonSet) doctorDaemonSet(rep *doctor.Report, name string) {
 		return
 	}
 
-	var m DaemonSetManifest
+	var m apiv1alpha1.DaemonSet
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		rep.Errorf(resourceID, "manifest-parse", "manifest YAML is invalid: %v", err)
 		return
@@ -1023,7 +1024,7 @@ func (d *DaemonSet) doctorDaemonSet(rep *doctor.Report, name string) {
 
 	doctor.CheckAPIVersion(rep, resourceID, m.APIVersion, daemonSetKind.APIVersion())
 	doctor.CheckKind(rep, resourceID, m.Kind, daemonSetKind.Kind)
-	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Metadata.Name)
+	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Name)
 
 	if len(m.Spec.Compose.Services) == 0 {
 		rep.Errorf(resourceID, "missing-services", "spec.compose.services must define at least one service")

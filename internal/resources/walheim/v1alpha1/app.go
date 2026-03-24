@@ -19,6 +19,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/resource"
 	"github.com/walheimlab/walheim-go/internal/rsync"
 	"github.com/walheimlab/walheim-go/internal/ssh"
+	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
 var appKind = resource.KindInfo{
@@ -49,7 +50,7 @@ func (a *App) KindInfo() resource.KindInfo { return appKind }
 
 // ── Namespace config helper ───────────────────────────────────────────────────
 
-func (a *App) loadNamespaceManifest(namespace string) (*NamespaceManifest, error) {
+func (a *App) loadNamespaceManifest(namespace string) (*apiv1alpha1.Namespace, error) {
 	path := filepath.Join(a.DataDir, "namespaces", namespace, ".namespace.yaml")
 
 	data, err := a.FS.ReadFile(path)
@@ -57,7 +58,7 @@ func (a *App) loadNamespaceManifest(namespace string) (*NamespaceManifest, error
 		return nil, fmt.Errorf("namespace %q not found", namespace)
 	}
 
-	var m NamespaceManifest
+	var m apiv1alpha1.Namespace
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
@@ -67,7 +68,7 @@ func (a *App) loadNamespaceManifest(namespace string) (*NamespaceManifest, error
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
-func validateAppManifest(m *AppManifest, namespace, name string) error {
+func validateAppManifest(m *apiv1alpha1.App, namespace, name string) error {
 	if m.APIVersion != appKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", appKind.APIVersion(), m.APIVersion)
 	}
@@ -76,12 +77,12 @@ func validateAppManifest(m *AppManifest, namespace, name string) error {
 		return fmt.Errorf("invalid kind: expected %q, got %q", appKind.Kind, m.Kind)
 	}
 
-	if m.Metadata.Name != name {
-		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
+	if m.Name != name {
+		return fmt.Errorf("metadata.name %q does not match argument %q", m.Name, name)
 	}
 
-	if m.Metadata.Namespace != namespace {
-		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Metadata.Namespace, namespace)
+	if m.Namespace != namespace {
+		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Namespace, namespace)
 	}
 
 	if len(m.Spec.Compose.Services) == 0 {
@@ -93,13 +94,13 @@ func validateAppManifest(m *AppManifest, namespace, name string) error {
 
 // ── Typed read/list helpers ───────────────────────────────────────────────────
 
-func (a *App) parseManifest(namespace, name string) (*AppManifest, error) {
+func (a *App) parseManifest(namespace, name string) (*apiv1alpha1.App, error) {
 	data, err := a.ReadBytes(namespace, name)
 	if err != nil {
 		return nil, err
 	}
 
-	var m AppManifest
+	var m apiv1alpha1.App
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse app %q in namespace %q: %w", name, namespace, err)
 	}
@@ -107,7 +108,7 @@ func (a *App) parseManifest(namespace, name string) (*AppManifest, error) {
 	return &m, nil
 }
 
-func appToMeta(namespace, name string, m *AppManifest, status, ready string) resource.ResourceMeta {
+func appToMeta(namespace, name string, m *apiv1alpha1.App, status, ready string) resource.ResourceMeta {
 	// Pick image from first service in iteration order.
 	img := "N/A"
 
@@ -122,7 +123,7 @@ func appToMeta(namespace, name string, m *AppManifest, status, ready string) res
 	return resource.ResourceMeta{
 		Namespace: namespace,
 		Name:      name,
-		Labels:    m.Metadata.Labels,
+		Labels:    m.Labels,
 		Summary: map[string]string{
 			"IMAGE":  img,
 			"READY":  ready,
@@ -132,7 +133,7 @@ func appToMeta(namespace, name string, m *AppManifest, status, ready string) res
 	}
 }
 
-func (a *App) getOne(namespace, name string) (resource.ResourceMeta, *AppManifest, error) {
+func (a *App) getOne(namespace, name string) (resource.ResourceMeta, *apiv1alpha1.App, error) {
 	exists, err := a.Exists(namespace, name)
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
@@ -151,13 +152,13 @@ func (a *App) getOne(namespace, name string) (resource.ResourceMeta, *AppManifes
 	return appToMeta(namespace, name, m, "Configured", "-"), m, nil
 }
 
-func (a *App) listNamespace(namespace string) ([]*AppManifest, []string, error) {
+func (a *App) listNamespace(namespace string) ([]*apiv1alpha1.App, []string, error) {
 	names, err := a.ListNames(namespace)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	manifests := make([]*AppManifest, 0, len(names))
+	manifests := make([]*apiv1alpha1.App, 0, len(names))
 
 	validNames := make([]string, 0, len(names))
 	for _, name := range names {
@@ -193,7 +194,7 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 
 		statusMap := a.prefetchStatus([]string{namespace})
 		state, ready := aggregateStatus(statusMap, namespace, opts.Name)
-		m.Status = &AppStatus{State: state, Ready: ready}
+		m.Status = &apiv1alpha1.AppStatus{State: state, Ready: ready}
 
 		return output.PrintOne(meta, opts.Output)
 	}
@@ -209,7 +210,7 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 		statusMap := a.prefetchStatus(namespaces)
 
 		type nsAppResult struct {
-			manifests []*AppManifest
+			manifests []*apiv1alpha1.App
 			names     []string
 			err       error
 		}
@@ -303,7 +304,7 @@ func (a *App) runApply(opts registry.OperationOpts) error {
 		}
 	}
 
-	var m AppManifest
+	var m apiv1alpha1.App
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("parse manifest: %w", err))
 	}
@@ -394,10 +395,10 @@ func (a *App) runDelete(opts registry.OperationOpts) error {
 
 // appDescribeResult is the structured output for describe app, including runtime status.
 type appDescribeResult struct {
-	APIVersion string          `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string          `json:"kind" yaml:"kind"`
-	Metadata   appDescribeMeta `json:"metadata" yaml:"metadata"`
-	Status     *AppStatus      `json:"status,omitempty" yaml:"status,omitempty"`
+	APIVersion string                  `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                  `json:"kind" yaml:"kind"`
+	Metadata   appDescribeMeta         `json:"metadata" yaml:"metadata"`
+	Status     *apiv1alpha1.AppStatus  `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 type appDescribeMeta struct {
@@ -425,11 +426,11 @@ func (a *App) runDescribe(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.sshTarget()
+	target := nsMeta.Spec.SSHTarget()
 	client := ssh.NewClient(target)
 
 	// Check remote dir
-	remoteAppDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
+	remoteAppDir := nsMeta.Spec.RemoteBaseDir() + "/apps/" + name
 	remoteExists := false
 
 	if _, checkErr := client.RunOutput("test -d " + remoteAppDir + " && echo yes"); checkErr == nil {
@@ -446,7 +447,7 @@ func (a *App) runDescribe(opts registry.OperationOpts) error {
 	statusMap := a.prefetchStatus([]string{namespace})
 	state, ready := aggregateStatus(statusMap, namespace, name)
 
-	status := &AppStatus{
+	status := &apiv1alpha1.AppStatus{
 		State:     state,
 		Ready:     ready,
 		Deployed:  remoteExists,
@@ -525,8 +526,8 @@ func (a *App) runDescribe(opts registry.OperationOpts) error {
 	return nil
 }
 
-// serviceNames returns sorted service names from an AppManifest.
-func serviceNames(m *AppManifest) []string {
+// serviceNames returns sorted service names from an App.
+func serviceNames(m *apiv1alpha1.App) []string {
 	names := make([]string, 0, len(m.Spec.Compose.Services))
 	for n := range m.Spec.Compose.Services {
 		names = append(names, n)
@@ -569,17 +570,18 @@ func (a *App) runImport(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, fmt.Errorf("read %q: %w", filePath, err))
 	}
 
-	var composeSpec ComposeSpec
+	var composeSpec apiv1alpha1.ComposeSpec
 	if err := yaml.Unmarshal(data, &composeSpec); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("parse compose file: %w", err))
 	}
 
-	m := &AppManifest{
-		APIVersion: appKind.APIVersion(),
-		Kind:       appKind.Kind,
-		Metadata:   ResourceMetadata{Name: name, Namespace: namespace},
-		Spec:       AppSpec{Compose: composeSpec},
+	m := &apiv1alpha1.App{
+		Spec: apiv1alpha1.AppSpec{Compose: composeSpec},
 	}
+	m.APIVersion = appKind.APIVersion()
+	m.Kind = appKind.Kind
+	m.Name = name
+	m.Namespace = namespace
 
 	if opts.DryRun {
 		encoded, err := yamlutil.Marshal(m)
@@ -626,7 +628,7 @@ func (a *App) runStart(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.sshTarget()
+	target := nsMeta.Spec.SSHTarget()
 
 	// Generate compose file locally
 	if err := generateCompose(namespace, name, m, a.FS, a.DataDir); err != nil {
@@ -639,7 +641,7 @@ func (a *App) runStart(opts registry.OperationOpts) error {
 	}
 
 	localDir := a.ResourceDir(namespace, name)
-	remoteDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
+	remoteDir := nsMeta.Spec.RemoteBaseDir() + "/apps/" + name
 
 	if err := rsync.NewSyncer().Sync(a.FS, localDir, target, remoteDir); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("rsync: %w", err))
@@ -666,7 +668,7 @@ func (a *App) runPause(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.sshTarget()
+	target := nsMeta.Spec.SSHTarget()
 
 	if opts.DryRun {
 		fmt.Printf("Would run docker compose down for app %q in namespace %q\n", name, namespace)
@@ -674,7 +676,7 @@ func (a *App) runPause(opts registry.OperationOpts) error {
 	}
 
 	// Check if remote dir exists — idempotent
-	remoteAppDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
+	remoteAppDir := nsMeta.Spec.RemoteBaseDir() + "/apps/" + name
 	sshClient := ssh.NewClient(target)
 
 	_, checkErr := sshClient.RunOutput("test -d " + remoteAppDir)
@@ -717,10 +719,10 @@ func (a *App) runStop(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.sshTarget()
+	target := nsMeta.Spec.SSHTarget()
 
 	sshClient := ssh.NewClient(target)
-	if err := sshClient.Run("rm -rf " + nsMeta.Spec.remoteBaseDir() + "/apps/" + name); err != nil {
+	if err := sshClient.Run("rm -rf " + nsMeta.Spec.RemoteBaseDir() + "/apps/" + name); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("remove remote files: %w", err))
 	}
 
@@ -738,7 +740,7 @@ func (a *App) runPull(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.sshTarget()
+	target := nsMeta.Spec.SSHTarget()
 
 	if opts.DryRun {
 		fmt.Printf("Would run docker compose pull for app %q in namespace %q\n", name, namespace)
@@ -746,7 +748,7 @@ func (a *App) runPull(opts registry.OperationOpts) error {
 	}
 
 	// Check remote dir
-	remoteAppDir := nsMeta.Spec.remoteBaseDir() + "/apps/" + name
+	remoteAppDir := nsMeta.Spec.RemoteBaseDir() + "/apps/" + name
 	sshClient := ssh.NewClient(target)
 
 	_, checkErr := sshClient.RunOutput("test -d " + remoteAppDir)
@@ -775,7 +777,7 @@ func (a *App) runLogs(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.sshTarget()
+	target := nsMeta.Spec.SSHTarget()
 
 	follow := opts.Bool("follow")
 	tail := opts.Int("tail")
@@ -785,7 +787,7 @@ func (a *App) runLogs(opts registry.OperationOpts) error {
 	// Build remote command
 	var cmdParts []string
 
-	cmdParts = append(cmdParts, "cd "+nsMeta.Spec.remoteBaseDir()+"/apps/"+name+" && docker compose logs")
+	cmdParts = append(cmdParts, "cd "+nsMeta.Spec.RemoteBaseDir()+"/apps/"+name+" && docker compose logs")
 	if follow {
 		cmdParts = append(cmdParts, "--follow")
 	}
@@ -832,7 +834,7 @@ func (a *App) runExec(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.sshTarget()
+	target := nsMeta.Spec.SSHTarget()
 
 	service := opts.String("service")
 	if service == "" {
@@ -857,7 +859,7 @@ func (a *App) runExec(opts registry.OperationOpts) error {
 	// Build remote command
 	var cmdParts []string
 
-	cmdParts = append(cmdParts, "cd "+nsMeta.Spec.remoteBaseDir()+"/apps/"+name+" && docker compose exec")
+	cmdParts = append(cmdParts, "cd "+nsMeta.Spec.RemoteBaseDir()+"/apps/"+name+" && docker compose exec")
 	if !tty {
 		cmdParts = append(cmdParts, "--no-TTY")
 	}
@@ -954,7 +956,7 @@ func (a *App) doctorApp(rep *doctor.Report, namespace, name string) {
 		return
 	}
 
-	var m AppManifest
+	var m apiv1alpha1.App
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		rep.Errorf(resourceID, "manifest-parse", "manifest YAML is invalid: %v", err)
 		return
@@ -963,8 +965,8 @@ func (a *App) doctorApp(rep *doctor.Report, namespace, name string) {
 	// ── Common structural checks ──────────────────────────────────────────
 	doctor.CheckAPIVersion(rep, resourceID, m.APIVersion, appKind.APIVersion())
 	doctor.CheckKind(rep, resourceID, m.Kind, appKind.Kind)
-	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Metadata.Name)
-	doctor.CheckNamespaceFieldMatchesDir(rep, resourceID, m.Metadata.Namespace, namespace)
+	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Name)
+	doctor.CheckNamespaceFieldMatchesDir(rep, resourceID, m.Namespace, namespace)
 
 	// ── App-specific field checks ─────────────────────────────────────────
 	if len(m.Spec.Compose.Services) == 0 {

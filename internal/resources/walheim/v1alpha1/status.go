@@ -31,7 +31,7 @@ func (a *App) prefetchStatus(namespaces []string) map[string]containerStatus {
 			continue
 		}
 
-		host := m.Spec.sshTarget()
+		host := m.Spec.SSHTarget()
 		if !seen[host] {
 			seen[host] = true
 			pairs = append(pairs, nsHost{ns, host})

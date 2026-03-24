@@ -12,6 +12,8 @@ import (
 
 	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/yamlutil"
+	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
+	corev1 "github.com/walheimlab/walheim-go/pkg/api/core/v1"
 )
 
 var varPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -19,7 +21,7 @@ var varPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
 // generateCompose builds the final docker-compose.yml and writes it locally.
 // Path: <dataDir>/namespaces/<namespace>/apps/<name>/docker-compose.yml
 // NOTE: This function modifies m.Spec.Compose.Services in-place.
-func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, dataDir string) error {
+func generateCompose(namespace, name string, m *apiv1alpha1.App, filesystem fs.FS, dataDir string) error {
 	// Make a working copy of services to avoid mutating the original manifest unexpectedly
 	// (we do mutate it, as documented in the plan, but let's be intentional).
 	services := m.Spec.Compose.Services
@@ -164,7 +166,7 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 // applyAuditLabels stamps walheim.injected-env.* labels onto each service
 // to record which environment keys were injected and from which source.
 func applyAuditLabels(
-	services map[string]ComposeService,
+	services map[string]apiv1alpha1.ComposeService,
 	overrideInjected map[string][]string,
 	secretInjected map[string]map[string][]string,
 	configmapInjected map[string]map[string][]string,
@@ -219,7 +221,7 @@ func writeMountFiles(resourceDir, sourceType, sourceName string, kvMap map[strin
 // injectComposeMounts writes mount files and appends bind-mount volume entries
 // into the target services. Volume paths are relative to the compose file
 // location (i.e. resourceDir is the directory that contains docker-compose.yml).
-func injectComposeMounts(resourceDir string, services map[string]ComposeService, mounts []MountEntry, namespace string, filesystem fs.FS, dataDir string) error {
+func injectComposeMounts(resourceDir string, services map[string]apiv1alpha1.ComposeService, mounts []apiv1alpha1.MountEntry, namespace string, filesystem fs.FS, dataDir string) error {
 	for _, entry := range mounts {
 		var (
 			kvMap                  map[string]string
@@ -269,7 +271,7 @@ func injectComposeMounts(resourceDir string, services map[string]ComposeService,
 
 // targetServices returns the list of service names to inject into.
 // If serviceNames is non-empty, only those; otherwise all services.
-func targetServices(services map[string]ComposeService, serviceNames []string) []string {
+func targetServices(services map[string]apiv1alpha1.ComposeService, serviceNames []string) []string {
 	if len(serviceNames) > 0 {
 		return serviceNames
 	}
@@ -327,7 +329,7 @@ func loadSecret(namespace, name string, filesystem fs.FS, dataDir string) (map[s
 		return nil, fmt.Errorf("secret %q not found in namespace %q", name, namespace)
 	}
 
-	var sm SecretManifest
+	var sm corev1.Secret
 	if err := yaml.Unmarshal(data, &sm); err != nil {
 		return nil, fmt.Errorf("parse secret %q: %w", name, err)
 	}
@@ -358,7 +360,7 @@ func loadConfigMap(namespace, name string, filesystem fs.FS, dataDir string) (ma
 		return nil, fmt.Errorf("configmap %q not found in namespace %q", name, namespace)
 	}
 
-	var cm ConfigMapManifest
+	var cm corev1.ConfigMap
 	if err := yaml.Unmarshal(data, &cm); err != nil {
 		return nil, fmt.Errorf("parse configmap %q: %w", name, err)
 	}

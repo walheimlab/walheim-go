@@ -15,6 +15,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/resource"
+	corev1 "github.com/walheimlab/walheim-go/pkg/api/core/v1"
 )
 
 // ── KindInfo ──────────────────────────────────────────────────────────────────
@@ -51,13 +52,13 @@ func (s *Secret) KindInfo() resource.KindInfo { return secretKind }
 
 // ── Typed read/list helpers ───────────────────────────────────────────────────
 
-func (s *Secret) parseManifest(namespace, name string) (*SecretManifest, error) {
+func (s *Secret) parseManifest(namespace, name string) (*corev1.Secret, error) {
 	data, err := s.ReadBytes(namespace, name)
 	if err != nil {
 		return nil, err
 	}
 
-	var m SecretManifest
+	var m corev1.Secret
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse secret %q in namespace %q: %w", name, namespace, err)
 	}
@@ -66,7 +67,7 @@ func (s *Secret) parseManifest(namespace, name string) (*SecretManifest, error) 
 }
 
 // secretKeys returns a sorted, comma-joined union of keys from data and stringData.
-func secretKeys(m *SecretManifest) string {
+func secretKeys(m *corev1.Secret) string {
 	seen := make(map[string]struct{})
 	for k := range m.Data {
 		seen[k] = struct{}{}
@@ -86,11 +87,11 @@ func secretKeys(m *SecretManifest) string {
 	return strings.Join(keys, ", ")
 }
 
-func secretToMeta(namespace, name string, m *SecretManifest) resource.ResourceMeta {
+func secretToMeta(namespace, name string, m *corev1.Secret) resource.ResourceMeta {
 	return resource.ResourceMeta{
 		Namespace: namespace,
 		Name:      name,
-		Labels:    m.Metadata.Labels,
+		Labels:    m.Labels,
 		Summary: map[string]string{
 			"TYPE": "Opaque",
 			"KEYS": secretKeys(m),
@@ -140,7 +141,7 @@ func (s *Secret) listNamespace(namespace string) ([]resource.ResourceMeta, error
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
-func validateSecretManifest(m *SecretManifest, namespace, name string) error {
+func validateSecretManifest(m *corev1.Secret, namespace, name string) error {
 	if m.APIVersion != secretKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", secretKind.APIVersion(), m.APIVersion)
 	}
@@ -149,12 +150,12 @@ func validateSecretManifest(m *SecretManifest, namespace, name string) error {
 		return fmt.Errorf("invalid kind: expected %q, got %q", secretKind.Kind, m.Kind)
 	}
 
-	if m.Metadata.Name != name {
-		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
+	if m.Name != name {
+		return fmt.Errorf("metadata.name %q does not match argument %q", m.Name, name)
 	}
 
-	if m.Metadata.Namespace != namespace {
-		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Metadata.Namespace, namespace)
+	if m.Namespace != namespace {
+		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Namespace, namespace)
 	}
 
 	for k, v := range m.Data {
@@ -268,7 +269,7 @@ func (s *Secret) runApply(opts registry.OperationOpts) error {
 		}
 	}
 
-	var m SecretManifest
+	var m corev1.Secret
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("parse manifest: %w", err))
 	}
@@ -425,7 +426,7 @@ func (s *Secret) doctorSecret(rep *doctor.Report, namespace, name string) {
 		return
 	}
 
-	var m SecretManifest
+	var m corev1.Secret
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		rep.Errorf(resourceID, "manifest-parse", "manifest YAML is invalid: %v", err)
 		return
@@ -433,8 +434,8 @@ func (s *Secret) doctorSecret(rep *doctor.Report, namespace, name string) {
 
 	doctor.CheckAPIVersion(rep, resourceID, m.APIVersion, secretKind.APIVersion())
 	doctor.CheckKind(rep, resourceID, m.Kind, secretKind.Kind)
-	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Metadata.Name)
-	doctor.CheckNamespaceFieldMatchesDir(rep, resourceID, m.Metadata.Namespace, namespace)
+	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Name)
+	doctor.CheckNamespaceFieldMatchesDir(rep, resourceID, m.Namespace, namespace)
 
 	for k, v := range m.Data {
 		if _, err := base64.StdEncoding.DecodeString(v); err != nil {

@@ -13,10 +13,11 @@ import (
 	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/yamlutil"
 	"github.com/walheimlab/walheim-go/internal/resource"
 	"github.com/walheimlab/walheim-go/internal/rsync"
 	"github.com/walheimlab/walheim-go/internal/ssh"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
+	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
 // ── KindInfo & validation ─────────────────────────────────────────────────────
@@ -29,7 +30,7 @@ var jobKind = resource.KindInfo{
 	Aliases: []string{},
 }
 
-func validateJobManifest(m *JobManifest, namespace, name string) error {
+func validateJobManifest(m *apiv1alpha1.Job, namespace, name string) error {
 	if m.APIVersion != jobKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", jobKind.APIVersion(), m.APIVersion)
 	}
@@ -38,12 +39,12 @@ func validateJobManifest(m *JobManifest, namespace, name string) error {
 		return fmt.Errorf("invalid kind: expected %q, got %q", jobKind.Kind, m.Kind)
 	}
 
-	if m.Metadata.Name != name {
-		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
+	if m.Name != name {
+		return fmt.Errorf("metadata.name %q does not match argument %q", m.Name, name)
 	}
 
-	if m.Metadata.Namespace != namespace {
-		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Metadata.Namespace, namespace)
+	if m.Namespace != namespace {
+		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Namespace, namespace)
 	}
 
 	if m.Spec.Image == "" {
@@ -73,7 +74,7 @@ func newJob(dataDir string, filesystem fs.FS) *Job {
 
 func (j *Job) KindInfo() resource.KindInfo { return jobKind }
 
-func (j *Job) loadNamespaceManifest(namespace string) (*NamespaceManifest, error) {
+func (j *Job) loadNamespaceManifest(namespace string) (*apiv1alpha1.Namespace, error) {
 	path := filepath.Join(j.DataDir, "namespaces", namespace, ".namespace.yaml")
 
 	data, err := j.FS.ReadFile(path)
@@ -81,7 +82,7 @@ func (j *Job) loadNamespaceManifest(namespace string) (*NamespaceManifest, error
 		return nil, fmt.Errorf("namespace %q not found", namespace)
 	}
 
-	var m NamespaceManifest
+	var m apiv1alpha1.Namespace
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, err
 	}
@@ -114,7 +115,7 @@ func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
 			continue
 		}
 
-		host := m.Spec.sshTarget()
+		host := m.Spec.SSHTarget()
 		if !seen[host] {
 			seen[host] = true
 			pairs = append(pairs, nsHost{ns, host})
@@ -221,7 +222,7 @@ func aggregateJobStatus(results map[string]jobRunInfo, namespace, name string) (
 // generateJobCompose builds a docker-compose.yml for the job and writes it to
 // <localResourceDir>/docker-compose.yml. Mount files are also written under
 // <localResourceDir>/mounts/ so they can be rsynced together.
-func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesystem fs.FS, dataDir string) error {
+func generateJobCompose(localResourceDir, ns, name string, spec apiv1alpha1.JobSpec, filesystem fs.FS, dataDir string) error {
 	// Resolve env (envFrom + env overrides).
 	env := make(map[string]string)
 
@@ -254,10 +255,10 @@ func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesys
 		env[entry.Name] = substituteVars(entry.Value, env)
 	}
 
-	svc := ComposeService{
+	svc := apiv1alpha1.ComposeService{
 		Image:       spec.Image,
-		Environment: ServiceEnv{Values: env},
-		Labels: ServiceLabels{Values: map[string]string{
+		Environment: apiv1alpha1.ServiceEnv{Values: env},
+		Labels: apiv1alpha1.ServiceLabels{Values: map[string]string{
 			"walheim.managed":   "true",
 			"walheim.namespace": ns,
 			"walheim.job":       name,
@@ -305,8 +306,8 @@ func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesys
 		svc.Extra["command"] = spec.Command
 	}
 
-	compose := ComposeSpec{
-		Services: map[string]ComposeService{"job": svc},
+	compose := apiv1alpha1.ComposeSpec{
+		Services: map[string]apiv1alpha1.ComposeService{"job": svc},
 	}
 
 	encoded, err := yamlutil.Marshal(compose)
@@ -321,13 +322,13 @@ func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesys
 
 // ── Typed read/list helpers ───────────────────────────────────────────────────
 
-func (j *Job) parseManifest(namespace, name string) (*JobManifest, error) {
+func (j *Job) parseManifest(namespace, name string) (*apiv1alpha1.Job, error) {
 	data, err := j.ReadBytes(namespace, name)
 	if err != nil {
 		return nil, err
 	}
 
-	var m JobManifest
+	var m apiv1alpha1.Job
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse job %q in namespace %q: %w", name, namespace, err)
 	}
@@ -335,11 +336,11 @@ func (j *Job) parseManifest(namespace, name string) (*JobManifest, error) {
 	return &m, nil
 }
 
-func jobToMeta(namespace, name string, m *JobManifest, status, lastRun string) resource.ResourceMeta {
+func jobToMeta(namespace, name string, m *apiv1alpha1.Job, status, lastRun string) resource.ResourceMeta {
 	return resource.ResourceMeta{
 		Namespace: namespace,
 		Name:      name,
-		Labels:    m.Metadata.Labels,
+		Labels:    m.Labels,
 		Summary: map[string]string{
 			"IMAGE":    m.Spec.Image,
 			"STATUS":   status,
@@ -349,7 +350,7 @@ func jobToMeta(namespace, name string, m *JobManifest, status, lastRun string) r
 	}
 }
 
-func (j *Job) getOne(namespace, name string) (resource.ResourceMeta, *JobManifest, error) {
+func (j *Job) getOne(namespace, name string) (resource.ResourceMeta, *apiv1alpha1.Job, error) {
 	exists, err := j.Exists(namespace, name)
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
@@ -368,14 +369,14 @@ func (j *Job) getOne(namespace, name string) (resource.ResourceMeta, *JobManifes
 	return jobToMeta(namespace, name, m, "Configured", "-"), m, nil
 }
 
-func (j *Job) listNamespace(namespace string) ([]*JobManifest, []string, error) {
+func (j *Job) listNamespace(namespace string) ([]*apiv1alpha1.Job, []string, error) {
 	names, err := j.ListNames(namespace)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	var (
-		manifests  []*JobManifest
+		manifests  []*apiv1alpha1.Job
 		validNames []string
 	)
 
@@ -424,7 +425,7 @@ func (j *Job) runGet(opts registry.OperationOpts) error {
 		statusMap := j.prefetchJobStatus(namespaces)
 
 		type nsJobResult struct {
-			manifests []*JobManifest
+			manifests []*apiv1alpha1.Job
 			names     []string
 			err       error
 		}
@@ -517,7 +518,7 @@ func (j *Job) runApply(opts registry.OperationOpts) error {
 		}
 	}
 
-	var m JobManifest
+	var m apiv1alpha1.Job
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("parse manifest: %w", err))
 	}
@@ -578,9 +579,9 @@ func (j *Job) runRun(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.sshTarget()
+	target := nsMeta.Spec.SSHTarget()
 	localResourceDir := j.ResourceDir(namespace, name)
-	remoteResourceDir := nsMeta.Spec.remoteBaseDir() + "/jobs/" + name
+	remoteResourceDir := nsMeta.Spec.RemoteBaseDir() + "/jobs/" + name
 
 	if err := generateJobCompose(localResourceDir, namespace, name, m.Spec, j.FS, j.DataDir); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("generate docker-compose: %w", err))
@@ -663,7 +664,7 @@ func (j *Job) runLogs(opts registry.OperationOpts) error {
 	follow := opts.Bool("follow")
 	tail := opts.Int("tail")
 
-	remoteResourceDir := nsMeta.Spec.remoteBaseDir() + "/jobs/" + name
+	remoteResourceDir := nsMeta.Spec.RemoteBaseDir() + "/jobs/" + name
 
 	var cmdParts []string
 
@@ -680,11 +681,11 @@ func (j *Job) runLogs(opts registry.OperationOpts) error {
 	cmd := strings.Join(cmdParts, " ")
 
 	if opts.DryRun {
-		fmt.Printf("Would run on %s: %s\n", nsMeta.Spec.sshTarget(), cmd)
+		fmt.Printf("Would run on %s: %s\n", nsMeta.Spec.SSHTarget(), cmd)
 		return nil
 	}
 
-	sshClient := ssh.NewClient(nsMeta.Spec.sshTarget())
+	sshClient := ssh.NewClient(nsMeta.Spec.SSHTarget())
 	if follow {
 		return sshClient.Exec(cmd, false)
 	}
@@ -743,7 +744,7 @@ func (j *Job) doctorJob(rep *doctor.Report, namespace, name string) {
 		return
 	}
 
-	var m JobManifest
+	var m apiv1alpha1.Job
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		rep.Errorf(resourceID, "manifest-parse", "manifest YAML is invalid: %v", err)
 		return
@@ -751,7 +752,7 @@ func (j *Job) doctorJob(rep *doctor.Report, namespace, name string) {
 
 	doctor.CheckAPIVersion(rep, resourceID, m.APIVersion, jobKind.APIVersion())
 	doctor.CheckKind(rep, resourceID, m.Kind, jobKind.Kind)
-	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Metadata.Name)
+	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Name)
 
 	if m.Spec.Image == "" {
 		rep.Errorf(resourceID, "missing-image", "spec.image is required but not set")

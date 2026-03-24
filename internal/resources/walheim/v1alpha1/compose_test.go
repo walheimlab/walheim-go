@@ -4,12 +4,14 @@ import (
 	"reflect"
 	"sort"
 	"testing"
+
+	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
 // ── targetServices ────────────────────────────────────────────────────────────
 
 func TestTargetServices_allWhenEmpty(t *testing.T) {
-	services := map[string]ComposeService{
+	services := map[string]apiv1alpha1.ComposeService{
 		"web": {}, "db": {}, "cache": {},
 	}
 	got := targetServices(services, nil)
@@ -22,7 +24,7 @@ func TestTargetServices_allWhenEmpty(t *testing.T) {
 }
 
 func TestTargetServices_explicitNames(t *testing.T) {
-	services := map[string]ComposeService{
+	services := map[string]apiv1alpha1.ComposeService{
 		"web": {}, "db": {}, "cache": {},
 	}
 	got := targetServices(services, []string{"web", "db"})
@@ -38,7 +40,7 @@ func TestTargetServices_explicitNames(t *testing.T) {
 }
 
 func TestTargetServices_sorted(t *testing.T) {
-	services := map[string]ComposeService{"z": {}, "a": {}, "m": {}}
+	services := map[string]apiv1alpha1.ComposeService{"z": {}, "a": {}, "m": {}}
 
 	got := targetServices(services, nil)
 	if !sort.StringsAreSorted(got) {

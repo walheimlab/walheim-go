@@ -14,6 +14,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/resource"
+	corev1 "github.com/walheimlab/walheim-go/pkg/api/core/v1"
 )
 
 // ── KindInfo ──────────────────────────────────────────────────────────────────
@@ -50,13 +51,13 @@ func (c *ConfigMap) KindInfo() resource.KindInfo { return configMapKind }
 
 // ── Typed read/list helpers ───────────────────────────────────────────────────
 
-func (c *ConfigMap) parseManifest(namespace, name string) (*ConfigMapManifest, error) {
+func (c *ConfigMap) parseManifest(namespace, name string) (*corev1.ConfigMap, error) {
 	data, err := c.ReadBytes(namespace, name)
 	if err != nil {
 		return nil, err
 	}
 
-	var m ConfigMapManifest
+	var m corev1.ConfigMap
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse configmap %q in namespace %q: %w", name, namespace, err)
 	}
@@ -65,7 +66,7 @@ func (c *ConfigMap) parseManifest(namespace, name string) (*ConfigMapManifest, e
 }
 
 // configMapKeys returns a sorted, comma-joined list of data keys.
-func configMapKeys(m *ConfigMapManifest) string {
+func configMapKeys(m *corev1.ConfigMap) string {
 	keys := make([]string, 0, len(m.Data))
 	for k := range m.Data {
 		keys = append(keys, k)
@@ -76,11 +77,11 @@ func configMapKeys(m *ConfigMapManifest) string {
 	return strings.Join(keys, ", ")
 }
 
-func configMapToMeta(namespace, name string, m *ConfigMapManifest) resource.ResourceMeta {
+func configMapToMeta(namespace, name string, m *corev1.ConfigMap) resource.ResourceMeta {
 	return resource.ResourceMeta{
 		Namespace: namespace,
 		Name:      name,
-		Labels:    m.Metadata.Labels,
+		Labels:    m.Labels,
 		Summary: map[string]string{
 			"KEYS": configMapKeys(m),
 		},
@@ -129,7 +130,7 @@ func (c *ConfigMap) listNamespace(namespace string) ([]resource.ResourceMeta, er
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
-func validateConfigMapManifest(m *ConfigMapManifest, namespace, name string) error {
+func validateConfigMapManifest(m *corev1.ConfigMap, namespace, name string) error {
 	if m.APIVersion != configMapKind.APIVersion() {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", configMapKind.APIVersion(), m.APIVersion)
 	}
@@ -138,12 +139,12 @@ func validateConfigMapManifest(m *ConfigMapManifest, namespace, name string) err
 		return fmt.Errorf("invalid kind: expected %q, got %q", configMapKind.Kind, m.Kind)
 	}
 
-	if m.Metadata.Name != name {
-		return fmt.Errorf("metadata.name %q does not match argument %q", m.Metadata.Name, name)
+	if m.Name != name {
+		return fmt.Errorf("metadata.name %q does not match argument %q", m.Name, name)
 	}
 
-	if m.Metadata.Namespace != namespace {
-		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Metadata.Namespace, namespace)
+	if m.Namespace != namespace {
+		return fmt.Errorf("metadata.namespace %q does not match -n %q", m.Namespace, namespace)
 	}
 
 	return nil
@@ -251,7 +252,7 @@ func (c *ConfigMap) runApply(opts registry.OperationOpts) error {
 		}
 	}
 
-	var m ConfigMapManifest
+	var m corev1.ConfigMap
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("parse manifest: %w", err))
 	}
@@ -408,7 +409,7 @@ func (c *ConfigMap) doctorConfigMap(rep *doctor.Report, namespace, name string) 
 		return
 	}
 
-	var m ConfigMapManifest
+	var m corev1.ConfigMap
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		rep.Errorf(resourceID, "manifest-parse", "manifest YAML is invalid: %v", err)
 		return
@@ -416,8 +417,8 @@ func (c *ConfigMap) doctorConfigMap(rep *doctor.Report, namespace, name string) 
 
 	doctor.CheckAPIVersion(rep, resourceID, m.APIVersion, configMapKind.APIVersion())
 	doctor.CheckKind(rep, resourceID, m.Kind, configMapKind.Kind)
-	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Metadata.Name)
-	doctor.CheckNamespaceFieldMatchesDir(rep, resourceID, m.Metadata.Namespace, namespace)
+	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Name)
+	doctor.CheckNamespaceFieldMatchesDir(rep, resourceID, m.Namespace, namespace)
 
 	if len(m.Data) == 0 {
 		rep.Warnf(resourceID, "empty-configmap", "configmap has no data keys")

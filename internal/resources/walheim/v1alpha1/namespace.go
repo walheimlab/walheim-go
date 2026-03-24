@@ -18,6 +18,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/resource"
 	"github.com/walheimlab/walheim-go/internal/ssh"
 	"github.com/walheimlab/walheim-go/internal/yamlutil"
+	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
 // ── KindInfo & validation ─────────────────────────────────────────────────────
@@ -30,7 +31,7 @@ var namespaceKind = resource.KindInfo{
 	Aliases: []string{"ns"},
 }
 
-func validateNamespaceManifest(m *NamespaceManifest) error {
+func validateNamespaceManifest(m *apiv1alpha1.Namespace) error {
 	if want := namespaceKind.APIVersion(); m.APIVersion != want {
 		return fmt.Errorf("invalid apiVersion: expected %q, got %q", want, m.APIVersion)
 	}
@@ -68,13 +69,13 @@ func (n *Namespace) KindInfo() resource.KindInfo { return namespaceKind }
 
 // ── Typed read/list ───────────────────────────────────────────────────────────
 
-func (n *Namespace) parseManifest(name string) (*NamespaceManifest, error) {
+func (n *Namespace) parseManifest(name string) (*apiv1alpha1.Namespace, error) {
 	data, err := n.ReadBytes(name)
 	if err != nil {
 		return nil, err
 	}
 
-	var m NamespaceManifest
+	var m apiv1alpha1.Namespace
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return nil, fmt.Errorf("parse namespace %q: %w", name, err)
 	}
@@ -82,7 +83,7 @@ func (n *Namespace) parseManifest(name string) (*NamespaceManifest, error) {
 	return &m, nil
 }
 
-func namespaceToMeta(name string, m *NamespaceManifest) resource.ResourceMeta {
+func namespaceToMeta(name string, m *apiv1alpha1.Namespace) resource.ResourceMeta {
 	h := m.Spec.Hostname
 	if h == "" {
 		h = "N/A"
@@ -90,17 +91,17 @@ func namespaceToMeta(name string, m *NamespaceManifest) resource.ResourceMeta {
 
 	return resource.ResourceMeta{
 		Name:   name,
-		Labels: m.Metadata.Labels,
+		Labels: m.Labels,
 		Summary: map[string]string{
 			"HOSTNAME": h,
-			"USERNAME": m.Spec.usernameDisplay(),
-			"BASE DIR": m.Spec.baseDirDisplay(),
+			"USERNAME": m.Spec.UsernameDisplay(),
+			"BASE DIR": m.Spec.BaseDirDisplay(),
 		},
 		Raw: m,
 	}
 }
 
-func (n *Namespace) getOne(name string) (resource.ResourceMeta, *NamespaceManifest, error) {
+func (n *Namespace) getOne(name string) (resource.ResourceMeta, *apiv1alpha1.Namespace, error) {
 	exists, err := n.Exists(name)
 	if err != nil {
 		return resource.ResourceMeta{}, nil, err
@@ -151,7 +152,7 @@ func (n *Namespace) createSubdirs(name string) error {
 	return nil
 }
 
-func (n *Namespace) countLocalResources(nsName string) NamespaceResourceCounts {
+func (n *Namespace) countLocalResources(nsName string) apiv1alpha1.NamespaceResourceCounts {
 	nsDir := n.ResourceDir(nsName)
 	count := func(sub string) int {
 		entries, err := n.FS.ReadDir(filepath.Join(nsDir, sub))
@@ -162,7 +163,7 @@ func (n *Namespace) countLocalResources(nsName string) NamespaceResourceCounts {
 		return len(entries)
 	}
 
-	return NamespaceResourceCounts{
+	return apiv1alpha1.NamespaceResourceCounts{
 		Apps:       count("apps"),
 		Secrets:    count("secrets"),
 		ConfigMaps: count("configmaps"),
@@ -246,16 +247,16 @@ func (n *Namespace) runCreate(opts registry.OperationOpts) error {
 	username := opts.String("username")
 	baseDir := opts.String("base-dir")
 
-	m := &NamespaceManifest{
-		APIVersion: namespaceKind.APIVersion(),
-		Kind:       namespaceKind.Kind,
-		Metadata:   ResourceMetadata{Name: name},
-		Spec:       NamespaceSpec{Hostname: hostname, Username: username, BaseDir: baseDir},
+	m := &apiv1alpha1.Namespace{
+		Spec: apiv1alpha1.NamespaceSpec{Hostname: hostname, Username: username, BaseDir: baseDir},
 	}
+	m.APIVersion = namespaceKind.APIVersion()
+	m.Kind = namespaceKind.Kind
+	m.Name = name
 
 	if opts.DryRun {
 		fmt.Printf("Would create namespace %q (hostname: %s, username: %s, base-dir: %s)\n",
-			name, hostname, m.Spec.usernameDisplay(), m.Spec.baseDirDisplay())
+			name, hostname, m.Spec.UsernameDisplay(), m.Spec.BaseDirDisplay())
 
 		return nil
 	}
@@ -273,7 +274,7 @@ func (n *Namespace) runCreate(opts registry.OperationOpts) error {
 	}
 
 	fmt.Printf("Created namespace %q (hostname: %s, username: %s, base-dir: %s)\n",
-		name, hostname, m.Spec.usernameDisplay(), m.Spec.baseDirDisplay())
+		name, hostname, m.Spec.UsernameDisplay(), m.Spec.BaseDirDisplay())
 
 	return nil
 }
@@ -303,7 +304,7 @@ func (n *Namespace) runApply(opts registry.OperationOpts) error {
 		}
 	}
 
-	var m NamespaceManifest
+	var m apiv1alpha1.Namespace
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("parse manifest: %w", err))
 	}
@@ -313,9 +314,9 @@ func (n *Namespace) runApply(opts registry.OperationOpts) error {
 		return exitErr(exitcode.UsageError, err)
 	}
 
-	if m.Metadata.Name != name {
+	if m.Name != name {
 		msg := fmt.Sprintf("manifest metadata.name %q does not match argument %q",
-			m.Metadata.Name, name)
+			m.Name, name)
 		output.Errorf(jsonMode, "ValidationError", msg, "", nil, false)
 
 		return exitErr(exitcode.UsageError, fmt.Errorf("%s", msg))
@@ -400,11 +401,11 @@ func (n *Namespace) runDelete(opts registry.OperationOpts) error {
 // ── describe ──────────────────────────────────────────────────────────────────
 
 type namespaceDescribeResult struct {
-	APIVersion string                `json:"apiVersion" yaml:"apiVersion"`
-	Kind       string                `json:"kind" yaml:"kind"`
-	Metadata   namespaceDescribeMeta `json:"metadata" yaml:"metadata"`
-	Spec       namespaceDescribeSpec `json:"spec" yaml:"spec"`
-	Status     *NamespaceStatus      `json:"status,omitempty" yaml:"status,omitempty"`
+	APIVersion string                        `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                        `json:"kind" yaml:"kind"`
+	Metadata   namespaceDescribeMeta         `json:"metadata" yaml:"metadata"`
+	Spec       namespaceDescribeSpec         `json:"spec" yaml:"spec"`
+	Status     *apiv1alpha1.NamespaceStatus  `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
 type namespaceDescribeMeta struct {
@@ -428,12 +429,12 @@ func (n *Namespace) runDescribe(opts registry.OperationOpts) error {
 		return err
 	}
 
-	return n.describeHuman(name, m, m.Spec.sshTarget())
+	return n.describeHuman(name, m, m.Spec.SSHTarget())
 }
 
 // buildDescribeStatus connects to the namespace host and collects runtime status.
-func (n *Namespace) buildDescribeStatus(name, target string) *NamespaceStatus {
-	status := &NamespaceStatus{
+func (n *Namespace) buildDescribeStatus(name, target string) *apiv1alpha1.NamespaceStatus {
+	status := &apiv1alpha1.NamespaceStatus{
 		Resources: n.countLocalResources(name),
 	}
 
@@ -452,8 +453,8 @@ func (n *Namespace) buildDescribeStatus(name, target string) *NamespaceStatus {
 	return status
 }
 
-func (n *Namespace) getWithStatus(name string, m *NamespaceManifest, format string) error {
-	target := m.Spec.sshTarget()
+func (n *Namespace) getWithStatus(name string, m *apiv1alpha1.Namespace, format string) error {
+	target := m.Spec.SSHTarget()
 
 	result := namespaceDescribeResult{
 		APIVersion: m.APIVersion,
@@ -462,7 +463,7 @@ func (n *Namespace) getWithStatus(name string, m *NamespaceManifest, format stri
 		Spec: namespaceDescribeSpec{
 			Hostname: m.Spec.Hostname,
 			Username: m.Spec.Username,
-			BaseDir:  m.Spec.remoteBaseDir(),
+			BaseDir:  m.Spec.RemoteBaseDir(),
 		},
 		Status: n.buildDescribeStatus(name, target),
 	}
@@ -485,11 +486,11 @@ func (n *Namespace) getWithStatus(name string, m *NamespaceManifest, format stri
 	return nil
 }
 
-func (n *Namespace) describeHuman(name string, m *NamespaceManifest, target string) error {
+func (n *Namespace) describeHuman(name string, m *apiv1alpha1.Namespace, target string) error {
 	fmt.Printf("Name:      %s\n", name)
 	fmt.Printf("Hostname:  %s\n", m.Spec.Hostname)
-	fmt.Printf("Username:  %s\n", m.Spec.usernameDisplay())
-	fmt.Printf("Base Dir:  %s\n", m.Spec.baseDirDisplay())
+	fmt.Printf("Username:  %s\n", m.Spec.UsernameDisplay())
+	fmt.Printf("Base Dir:  %s\n", m.Spec.BaseDirDisplay())
 	fmt.Printf("SSH:       %s\n", target)
 	fmt.Println()
 
@@ -555,26 +556,26 @@ func (n *Namespace) describeHuman(name string, m *NamespaceManifest, target stri
 	return nil
 }
 
-func namespaceDockerStatus(client *ssh.Client) *NamespaceDockerStatus {
+func namespaceDockerStatus(client *ssh.Client) *apiv1alpha1.NamespaceDockerStatus {
 	out, err := client.RunOutput("docker --version 2>/dev/null")
 	if err != nil || strings.TrimSpace(out) == "" {
-		return &NamespaceDockerStatus{Available: false}
+		return &apiv1alpha1.NamespaceDockerStatus{Available: false}
 	}
 
 	parts := strings.Fields(strings.TrimSpace(out))
 	if len(parts) >= 3 {
-		return &NamespaceDockerStatus{
+		return &apiv1alpha1.NamespaceDockerStatus{
 			Available: true,
 			Version:   strings.TrimSuffix(parts[2], ","),
 		}
 	}
 
-	return &NamespaceDockerStatus{Available: true}
+	return &apiv1alpha1.NamespaceDockerStatus{Available: true}
 }
 
 type namespaceStatusInfo struct {
-	DeployedApps []NamespaceDeployedApp
-	Containers   []NamespaceContainerStatus
+	DeployedApps []apiv1alpha1.NamespaceDeployedApp
+	Containers   []apiv1alpha1.NamespaceContainerStatus
 }
 
 // namespaceCollectStatus fetches all containers on the host in a single
@@ -598,7 +599,7 @@ func namespaceCollectStatus(client *ssh.Client, nsName string, localApps map[str
 
 	var appOrder []string
 
-	var containers []NamespaceContainerStatus
+	var containers []apiv1alpha1.NamespaceContainerStatus
 
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
@@ -615,7 +616,7 @@ func namespaceCollectStatus(client *ssh.Client, nsName string, localApps map[str
 
 		management := containerManagement(labelNs, labelApp, nsName, localApps)
 
-		containers = append(containers, NamespaceContainerStatus{
+		containers = append(containers, apiv1alpha1.NamespaceContainerStatus{
 			Name:         containerName,
 			App:          labelApp,
 			State:        state,
@@ -643,10 +644,10 @@ func namespaceCollectStatus(client *ssh.Client, nsName string, localApps map[str
 		}
 	}
 
-	apps := make([]NamespaceDeployedApp, 0, len(appOrder))
+	apps := make([]apiv1alpha1.NamespaceDeployedApp, 0, len(appOrder))
 	for _, appName := range appOrder {
 		a := appMap[appName]
-		apps = append(apps, NamespaceDeployedApp{
+		apps = append(apps, apiv1alpha1.NamespaceDeployedApp{
 			Name:    appName,
 			State:   namespaceAppState(a.state, a.running, a.total),
 			Running: a.running,
@@ -687,14 +688,14 @@ func namespaceAppState(rawState string, running, total int) string {
 	}
 }
 
-func namespaceUsageInfo(client *ssh.Client) *NamespaceUsage {
-	usage := &NamespaceUsage{}
+func namespaceUsageInfo(client *ssh.Client) *apiv1alpha1.NamespaceUsage {
+	usage := &apiv1alpha1.NamespaceUsage{}
 	hasData := false
 
 	diskOut, _ := client.RunOutput("df -h /data 2>/dev/null | tail -1")
 	if line := strings.TrimSpace(diskOut); line != "" {
 		if parts := strings.Fields(line); len(parts) >= 3 {
-			usage.Disk = &NamespaceDiskUsage{Used: parts[2], Total: parts[1]}
+			usage.Disk = &apiv1alpha1.NamespaceDiskUsage{Used: parts[2], Total: parts[1]}
 			hasData = true
 		}
 	}
@@ -705,7 +706,7 @@ func namespaceUsageInfo(client *ssh.Client) *NamespaceUsage {
 		total, err2 := strconv.Atoi(strings.TrimSpace(lines[1]))
 
 		if err1 == nil && err2 == nil {
-			usage.Containers = &NamespaceContainerCounts{Running: run, Stopped: total - run}
+			usage.Containers = &apiv1alpha1.NamespaceContainerCounts{Running: run, Stopped: total - run}
 			hasData = true
 		}
 	}
@@ -773,7 +774,7 @@ func (n *Namespace) doctorNamespace(rep *doctor.Report, name string) {
 		return // nothing more can be checked without the manifest
 	}
 
-	var m NamespaceManifest
+	var m apiv1alpha1.Namespace
 	if err := yaml.Unmarshal(data, &m); err != nil {
 		rep.Errorf(resourceID, "manifest-parse", "manifest YAML is invalid: %v", err)
 		return
@@ -782,7 +783,7 @@ func (n *Namespace) doctorNamespace(rep *doctor.Report, name string) {
 	// ── Common structural checks ──────────────────────────────────────────
 	doctor.CheckAPIVersion(rep, resourceID, m.APIVersion, namespaceKind.APIVersion())
 	doctor.CheckKind(rep, resourceID, m.Kind, namespaceKind.Kind)
-	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Metadata.Name)
+	doctor.CheckDirNameMatchesMetadataName(rep, resourceID, name, m.Name)
 
 	// ── Namespace-specific field checks ───────────────────────────────────
 	if m.Spec.Hostname == "" {

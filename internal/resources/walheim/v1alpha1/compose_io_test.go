@@ -8,18 +8,20 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/walheimlab/walheim-go/internal/testutil"
+	corev1 "github.com/walheimlab/walheim-go/pkg/api/core/v1"
+	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
 // ── loadSecret ────────────────────────────────────────────────────────────────
 
 func TestLoadSecret_stringData(t *testing.T) {
 	mem := testutil.NewMemFS()
-	sm := SecretManifest{
-		APIVersion: "walheim/v1alpha1",
-		Kind:       "Secret",
-		Metadata:   ResourceMetadata{Name: "db", Namespace: "prod"},
-		StringData: map[string]string{"PASSWORD": "s3cr3t"},
-	}
+	sm := corev1.Secret{}
+	sm.APIVersion = "v1"
+	sm.Kind = "Secret"
+	sm.Name = "db"
+	sm.Namespace = "prod"
+	sm.StringData = map[string]string{"PASSWORD": "s3cr3t"}
 	data, _ := yaml.Marshal(sm)
 	_ = mem.WriteFile("/data/namespaces/prod/secrets/db/.secret.yaml", data)
 
@@ -36,12 +38,12 @@ func TestLoadSecret_stringData(t *testing.T) {
 func TestLoadSecret_base64Data(t *testing.T) {
 	mem := testutil.NewMemFS()
 	encoded := base64.StdEncoding.EncodeToString([]byte("mypassword"))
-	sm := SecretManifest{
-		APIVersion: "walheim/v1alpha1",
-		Kind:       "Secret",
-		Metadata:   ResourceMetadata{Name: "db", Namespace: "prod"},
-		Data:       map[string]string{"PASSWORD": encoded},
-	}
+	sm := corev1.Secret{}
+	sm.APIVersion = "v1"
+	sm.Kind = "Secret"
+	sm.Name = "db"
+	sm.Namespace = "prod"
+	sm.Data = map[string]string{"PASSWORD": encoded}
 	data, _ := yaml.Marshal(sm)
 	_ = mem.WriteFile("/data/namespaces/prod/secrets/db/.secret.yaml", data)
 
@@ -58,13 +60,13 @@ func TestLoadSecret_base64Data(t *testing.T) {
 func TestLoadSecret_stringDataWinsOverData(t *testing.T) {
 	mem := testutil.NewMemFS()
 	encoded := base64.StdEncoding.EncodeToString([]byte("from-data"))
-	sm := SecretManifest{
-		APIVersion: "walheim/v1alpha1",
-		Kind:       "Secret",
-		Metadata:   ResourceMetadata{Name: "db", Namespace: "prod"},
-		Data:       map[string]string{"KEY": encoded},
-		StringData: map[string]string{"KEY": "from-stringdata"},
-	}
+	sm := corev1.Secret{}
+	sm.APIVersion = "v1"
+	sm.Kind = "Secret"
+	sm.Name = "db"
+	sm.Namespace = "prod"
+	sm.Data = map[string]string{"KEY": encoded}
+	sm.StringData = map[string]string{"KEY": "from-stringdata"}
 	data, _ := yaml.Marshal(sm)
 	_ = mem.WriteFile("/data/namespaces/prod/secrets/db/.secret.yaml", data)
 
@@ -91,12 +93,12 @@ func TestLoadSecret_notFound(t *testing.T) {
 
 func TestLoadConfigMap_basic(t *testing.T) {
 	mem := testutil.NewMemFS()
-	cm := ConfigMapManifest{
-		APIVersion: "walheim/v1alpha1",
-		Kind:       "ConfigMap",
-		Metadata:   ResourceMetadata{Name: "app-cfg", Namespace: "prod"},
-		Data:       map[string]string{"LOG_LEVEL": "debug", "PORT": "8080"},
-	}
+	cm := corev1.ConfigMap{}
+	cm.APIVersion = "v1"
+	cm.Kind = "ConfigMap"
+	cm.Name = "app-cfg"
+	cm.Namespace = "prod"
+	cm.Data = map[string]string{"LOG_LEVEL": "debug", "PORT": "8080"}
 	data, _ := yaml.Marshal(cm)
 	_ = mem.WriteFile("/data/namespaces/prod/configmaps/app-cfg/.configmap.yaml", data)
 
@@ -128,29 +130,30 @@ func TestLoadConfigMap_notFound(t *testing.T) {
 func writeSecret(t *testing.T, mem *testutil.MemFS, namespace, name string, kv map[string]string) {
 	t.Helper()
 
-	sm := SecretManifest{
-		APIVersion: "walheim/v1alpha1",
-		Kind:       "Secret",
-		Metadata:   ResourceMetadata{Name: name, Namespace: namespace},
-		StringData: kv,
-	}
+	sm := corev1.Secret{}
+	sm.APIVersion = "v1"
+	sm.Kind = "Secret"
+	sm.Name = name
+	sm.Namespace = namespace
+	sm.StringData = kv
 	data, _ := yaml.Marshal(sm)
 	_ = mem.WriteFile("/data/namespaces/"+namespace+"/secrets/"+name+"/.secret.yaml", data)
 }
 
-func minimalApp(namespace, name string) *AppManifest {
-	return &AppManifest{
-		APIVersion: "walheim/v1alpha1",
-		Kind:       "App",
-		Metadata:   ResourceMetadata{Name: name, Namespace: namespace},
-		Spec: AppSpec{
-			Compose: ComposeSpec{
-				Services: map[string]ComposeService{
-					"web": {Image: "nginx:latest"},
-				},
+func minimalApp(namespace, name string) *apiv1alpha1.App {
+	m := &apiv1alpha1.App{}
+	m.APIVersion = "walheim/v1alpha1"
+	m.Kind = "App"
+	m.Name = name
+	m.Namespace = namespace
+	m.Spec = apiv1alpha1.AppSpec{
+		Compose: apiv1alpha1.ComposeSpec{
+			Services: map[string]apiv1alpha1.ComposeService{
+				"web": {Image: "nginx:latest"},
 			},
 		},
 	}
+	return m
 }
 
 func TestGenerateCompose_injectsWalheimLabels(t *testing.T) {
@@ -180,8 +183,8 @@ func TestGenerateCompose_envFromSecret(t *testing.T) {
 	writeSecret(t, mem, "prod", "db-creds", map[string]string{"DB_PASS": "secret"})
 
 	m := minimalApp("prod", "myapp")
-	m.Spec.EnvFrom = []EnvFromEntry{
-		{SecretRef: &NamedRef{Name: "db-creds"}},
+	m.Spec.EnvFrom = []apiv1alpha1.EnvFromEntry{
+		{SecretRef: &apiv1alpha1.NamedRef{Name: "db-creds"}},
 	}
 
 	if err := generateCompose("prod", "myapp", m, mem, "/data"); err != nil {
@@ -199,10 +202,10 @@ func TestGenerateCompose_envOverridesEnvFrom(t *testing.T) {
 	writeSecret(t, mem, "prod", "db-creds", map[string]string{"LOG_LEVEL": "info"})
 
 	m := minimalApp("prod", "myapp")
-	m.Spec.EnvFrom = []EnvFromEntry{
-		{SecretRef: &NamedRef{Name: "db-creds"}},
+	m.Spec.EnvFrom = []apiv1alpha1.EnvFromEntry{
+		{SecretRef: &apiv1alpha1.NamedRef{Name: "db-creds"}},
 	}
-	m.Spec.Env = []EnvEntry{
+	m.Spec.Env = []apiv1alpha1.EnvEntry{
 		{Name: "LOG_LEVEL", Value: "debug"},
 	}
 
