@@ -18,11 +18,13 @@ func (s *LabelSelector) Matches(labels map[string]string) bool {
 	if s == nil || len(s.MatchLabels) == 0 {
 		return true
 	}
+
 	for k, v := range s.MatchLabels {
 		if labels[k] != v {
 			return false
 		}
 	}
+
 	return true
 }
 
@@ -91,18 +93,21 @@ type ServiceEnv struct {
 
 func (e *ServiceEnv) UnmarshalYAML(value *yaml.Node) error {
 	e.Values = make(map[string]string)
+
 	switch value.Kind {
 	case yaml.MappingNode:
 		var m map[string]string
 		if err := value.Decode(&m); err != nil {
 			return err
 		}
+
 		e.Values = m
 	case yaml.SequenceNode:
 		var list []string
 		if err := value.Decode(&list); err != nil {
 			return err
 		}
+
 		for _, item := range list {
 			if idx := strings.IndexByte(item, '='); idx >= 0 {
 				e.Values[item[:idx]] = item[idx+1:]
@@ -111,6 +116,7 @@ func (e *ServiceEnv) UnmarshalYAML(value *yaml.Node) error {
 			}
 		}
 	}
+
 	return nil
 }
 
@@ -126,18 +132,21 @@ type ServiceLabels struct {
 
 func (l *ServiceLabels) UnmarshalYAML(value *yaml.Node) error {
 	l.Values = make(map[string]string)
+
 	switch value.Kind {
 	case yaml.MappingNode:
 		var m map[string]string
 		if err := value.Decode(&m); err != nil {
 			return err
 		}
+
 		l.Values = m
 	case yaml.SequenceNode:
 		var list []string
 		if err := value.Decode(&list); err != nil {
 			return err
 		}
+
 		for _, item := range list {
 			if idx := strings.IndexByte(item, '='); idx >= 0 {
 				l.Values[item[:idx]] = item[idx+1:]
@@ -146,6 +155,7 @@ func (l *ServiceLabels) UnmarshalYAML(value *yaml.Node) error {
 			}
 		}
 	}
+
 	return nil
 }
 

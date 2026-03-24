@@ -480,7 +480,6 @@ func (d *DaemonSet) fetchDaemonSetStatus(dsName string, nsMetas []*apiv1alpha1.N
 					` --filter label=walheim.namespace=` + ns +
 					` --filter label=walheim.daemonset=` + dsName +
 					` --format '{{.State}}'`)
-
 			if err != nil {
 				nsStatus.State = "Unknown"
 				nsStatus.Ready = "-"
@@ -562,6 +561,7 @@ func (d *DaemonSet) runDescribe(opts registry.OperationOpts) error {
 
 	// Build selector display
 	selector := "(all)"
+
 	if m.Spec.NamespaceSelector != nil && len(m.Spec.NamespaceSelector.MatchLabels) != 0 {
 		parts := make([]string, 0, len(m.Spec.NamespaceSelector.MatchLabels))
 		for k, v := range m.Spec.NamespaceSelector.MatchLabels {

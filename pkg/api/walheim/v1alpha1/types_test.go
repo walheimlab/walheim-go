@@ -186,6 +186,7 @@ func TestServiceEnv_MarshalYAML_alwaysMap(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
+
 	if !strings.Contains(string(out), "A: \"1\"") && !strings.Contains(string(out), "A: '1'") && !strings.Contains(string(out), "A: 1") {
 		t.Errorf("marshal output %q does not look like map form", string(out))
 	}

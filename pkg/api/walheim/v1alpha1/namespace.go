@@ -29,6 +29,7 @@ func (s NamespaceSpec) RemoteBaseDir() string {
 	if s.BaseDir != "" {
 		return s.BaseDir
 	}
+
 	return DefaultRemoteBaseDir
 }
 
@@ -37,6 +38,7 @@ func (s NamespaceSpec) SSHTarget() string {
 	if s.Username != "" {
 		return s.Username + "@" + s.Hostname
 	}
+
 	return s.Hostname
 }
 
@@ -45,6 +47,7 @@ func (s NamespaceSpec) UsernameDisplay() string {
 	if s.Username != "" {
 		return s.Username
 	}
+
 	return "(from SSH config)"
 }
 
@@ -53,6 +56,7 @@ func (s NamespaceSpec) BaseDirDisplay() string {
 	if s.BaseDir != "" {
 		return s.BaseDir
 	}
+
 	return DefaultRemoteBaseDir + " (default)"
 }
 

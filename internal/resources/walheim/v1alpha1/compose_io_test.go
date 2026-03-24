@@ -153,6 +153,7 @@ func minimalApp(namespace, name string) *apiv1alpha1.App {
 			},
 		},
 	}
+
 	return m
 }
 
