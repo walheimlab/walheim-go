@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/walheimlab/walheim-go/internal/exitcode"
+	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/manifest"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/version"
@@ -419,7 +420,7 @@ func runFileDispatch(verb string, cmd *cobra.Command, gf *GlobalFlags) error {
 		return exitErr(exitcode.Failure, fmt.Errorf("%s", err))
 	}
 
-	envelopes, err := manifest.LoadSources(filenames, filesystem)
+	envelopes, err := manifest.LoadSources(filenames, fs.NewLocalFS())
 	if err != nil {
 		return exitErr(exitcode.Failure, err)
 	}
