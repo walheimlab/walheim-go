@@ -27,8 +27,9 @@ func (s *Syncer) Sync(filesystem wfs.FS, localRoot, remoteHost, remoteDir string
 		"-o", "ConnectTimeout=5",
 		"-o", "BatchMode=yes",
 		"-o", "StrictHostKeyChecking=accept-new",
-		"-s", "sftp",
+		"-s",
 		remoteHost,
+		"sftp",
 	)
 
 	stdin, err := cmd.StdinPipe()
