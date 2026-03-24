@@ -90,7 +90,7 @@ func loadDir(dir string, filesystem fs.FS) ([]Envelope, error) {
 
 	for _, name := range names {
 		lower := strings.ToLower(name)
-		if !strings.HasSuffix(lower, ".yaml") && !strings.HasSuffix(lower, ".yml") {
+		if !strings.HasSuffix(lower, ".yaml") && !strings.HasSuffix(lower, ".yml") && !strings.HasSuffix(lower, ".json") {
 			continue
 		}
 
