@@ -262,6 +262,24 @@ func (s *S3FS) ReadDir(p string) ([]string, error) {
 				seen[rel] = true
 			}
 		}
+
+		// Contents = immediate files at this level (e.g. "prefix/file.txt")
+		for _, obj := range page.Contents {
+			if obj.Key == nil {
+				continue
+			}
+			// Strip the leading prefix to get the child name
+			rel := strings.TrimPrefix(*obj.Key, prefix)
+			// Skip entries that contain a slash — they belong to subdirectories
+			if rel == "" || strings.Contains(rel, "/") || strings.HasPrefix(rel, ".") {
+				continue
+			}
+
+			if !seen[rel] {
+				names = append(names, rel)
+				seen[rel] = true
+			}
+		}
 	}
 
 	sort.Strings(names)
