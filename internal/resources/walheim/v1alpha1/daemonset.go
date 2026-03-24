@@ -283,7 +283,7 @@ func (d *DaemonSet) stopInNamespace(dsName, ns string) error {
 
 		sshClient := ssh.NewClient(target)
 		if _, checkErr := sshClient.RunOutput("test -d " + remoteDir); checkErr == nil {
-			if err := sshClient.Run("cd " + remoteDir + " && docker compose down"); err != nil {
+			if err := sshClient.Run("cd " + remoteDir + " && docker compose --progress plain down"); err != nil {
 				return exitErr(exitcode.Failure, fmt.Errorf("docker compose down in %q: %w", ns, err))
 			}
 
@@ -622,7 +622,7 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 
 		sshClient := ssh.NewClient(target)
 
-		cmd := "cd " + remoteDir + " && docker compose up -d --remove-orphans"
+		cmd := "cd " + remoteDir + " && docker compose --progress plain up -d --remove-orphans"
 		if err := sshClient.Run(cmd); err != nil {
 			return exitErr(exitcode.Failure, fmt.Errorf("docker compose up in %q: %w", ns, err))
 		}

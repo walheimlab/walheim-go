@@ -577,7 +577,7 @@ func (a *App) runStart(opts registry.OperationOpts) error {
 
 	sshClient := ssh.NewClient(target)
 
-	cmd := "cd " + remoteDir + " && docker compose up -d --remove-orphans"
+	cmd := "cd " + remoteDir + " && docker compose --progress plain up -d --remove-orphans"
 	if err := sshClient.Run(cmd); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("docker compose up: %w", err))
 	}
@@ -613,7 +613,7 @@ func (a *App) runPause(opts registry.OperationOpts) error {
 		return nil
 	}
 
-	if err := sshClient.Run("cd " + remoteAppDir + " && docker compose down"); err != nil {
+	if err := sshClient.Run("cd " + remoteAppDir + " && docker compose --progress plain down"); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("docker compose down: %w", err))
 	}
 
@@ -682,7 +682,7 @@ func (a *App) runPull(opts registry.OperationOpts) error {
 		return exitErr(exitcode.NotFound, fmt.Errorf("%s", msg))
 	}
 
-	if err := sshClient.Run("cd " + remoteAppDir + " && docker compose pull"); err != nil {
+	if err := sshClient.Run("cd " + remoteAppDir + " && docker compose --progress plain pull"); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("docker compose pull: %w", err))
 	}
 

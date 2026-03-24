@@ -566,7 +566,7 @@ func (j *Job) runRun(opts registry.OperationOpts) error {
 
 	var cmdParts []string
 
-	cmdParts = append(cmdParts, "cd "+remoteResourceDir+" && docker compose run --rm")
+	cmdParts = append(cmdParts, "cd "+remoteResourceDir+" && docker compose --progress plain run --rm")
 	if detach {
 		cmdParts = append(cmdParts, "--detach")
 	}
