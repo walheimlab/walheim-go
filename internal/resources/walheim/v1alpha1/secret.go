@@ -179,7 +179,7 @@ func (s *Secret) runGet(opts registry.OperationOpts) error {
 			return err
 		}
 
-		return output.PrintOne(meta, jsonMode)
+		return output.PrintOne(meta, opts.Output)
 	}
 
 	if opts.AllNamespaces {
@@ -200,11 +200,11 @@ func (s *Secret) runGet(opts registry.OperationOpts) error {
 		}
 
 		if len(items) == 0 {
-			output.PrintEmpty("secrets", "", jsonMode, opts.Quiet)
+			output.PrintEmpty("", secretKind, opts.Output, opts.Quiet)
 			return nil
 		}
 
-		return output.PrintList(items, []string{"NAMESPACE", "NAME", "TYPE", "KEYS"}, jsonMode, opts.Quiet)
+		return output.PrintList(items, []string{"NAMESPACE", "NAME", "TYPE", "KEYS"}, secretKind, opts.Output, opts.Quiet)
 	}
 
 	items, err := s.listNamespace(opts.Namespace)
@@ -213,11 +213,11 @@ func (s *Secret) runGet(opts registry.OperationOpts) error {
 	}
 
 	if len(items) == 0 {
-		output.PrintEmpty("secrets", opts.Namespace, jsonMode, opts.Quiet)
+		output.PrintEmpty(opts.Namespace, secretKind, opts.Output, opts.Quiet)
 		return nil
 	}
 
-	return output.PrintList(items, []string{"NAME", "TYPE", "KEYS"}, jsonMode, opts.Quiet)
+	return output.PrintList(items, []string{"NAME", "TYPE", "KEYS"}, secretKind, opts.Output, opts.Quiet)
 }
 
 func (s *Secret) runApply(opts registry.OperationOpts) error {

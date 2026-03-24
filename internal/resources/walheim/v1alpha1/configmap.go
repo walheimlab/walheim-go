@@ -162,7 +162,7 @@ func (c *ConfigMap) runGet(opts registry.OperationOpts) error {
 			return err
 		}
 
-		return output.PrintOne(meta, jsonMode)
+		return output.PrintOne(meta, opts.Output)
 	}
 
 	if opts.AllNamespaces {
@@ -183,11 +183,11 @@ func (c *ConfigMap) runGet(opts registry.OperationOpts) error {
 		}
 
 		if len(items) == 0 {
-			output.PrintEmpty("configmaps", "", jsonMode, opts.Quiet)
+			output.PrintEmpty("", configMapKind, opts.Output, opts.Quiet)
 			return nil
 		}
 
-		return output.PrintList(items, []string{"NAMESPACE", "NAME", "KEYS"}, jsonMode, opts.Quiet)
+		return output.PrintList(items, []string{"NAMESPACE", "NAME", "KEYS"}, configMapKind, opts.Output, opts.Quiet)
 	}
 
 	items, err := c.listNamespace(opts.Namespace)
@@ -196,11 +196,11 @@ func (c *ConfigMap) runGet(opts registry.OperationOpts) error {
 	}
 
 	if len(items) == 0 {
-		output.PrintEmpty("configmaps", opts.Namespace, jsonMode, opts.Quiet)
+		output.PrintEmpty(opts.Namespace, configMapKind, opts.Output, opts.Quiet)
 		return nil
 	}
 
-	return output.PrintList(items, []string{"NAME", "KEYS"}, jsonMode, opts.Quiet)
+	return output.PrintList(items, []string{"NAME", "KEYS"}, configMapKind, opts.Output, opts.Quiet)
 }
 
 func (c *ConfigMap) runApply(opts registry.OperationOpts) error {

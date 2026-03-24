@@ -411,7 +411,7 @@ func (j *Job) runGet(opts registry.OperationOpts) error {
 		statusMap := j.prefetchJobStatus([]string{namespace})
 		status, lastRun := aggregateJobStatus(statusMap, namespace, opts.Name)
 
-		return output.PrintOne(jobToMeta(namespace, opts.Name, m, status, lastRun), jsonMode)
+		return output.PrintOne(jobToMeta(namespace, opts.Name, m, status, lastRun), opts.Output)
 	}
 
 	if opts.AllNamespaces {
@@ -437,11 +437,11 @@ func (j *Job) runGet(opts registry.OperationOpts) error {
 		}
 
 		if len(items) == 0 {
-			output.PrintEmpty("jobs", "", jsonMode, opts.Quiet)
+			output.PrintEmpty("", jobKind, opts.Output, opts.Quiet)
 			return nil
 		}
 
-		return output.PrintList(items, []string{"NAMESPACE", "NAME", "IMAGE", "STATUS", "LAST RUN"}, jsonMode, opts.Quiet)
+		return output.PrintList(items, []string{"NAMESPACE", "NAME", "IMAGE", "STATUS", "LAST RUN"}, jobKind, opts.Output, opts.Quiet)
 	}
 
 	namespace := opts.Namespace
@@ -453,7 +453,7 @@ func (j *Job) runGet(opts registry.OperationOpts) error {
 	}
 
 	if len(manifests) == 0 {
-		output.PrintEmpty("jobs", namespace, jsonMode, opts.Quiet)
+		output.PrintEmpty(namespace, jobKind, opts.Output, opts.Quiet)
 		return nil
 	}
 
@@ -463,7 +463,7 @@ func (j *Job) runGet(opts registry.OperationOpts) error {
 		items[i] = jobToMeta(namespace, names[i], m, status, lastRun)
 	}
 
-	return output.PrintList(items, []string{"NAME", "IMAGE", "STATUS", "LAST RUN"}, jsonMode, opts.Quiet)
+	return output.PrintList(items, []string{"NAME", "IMAGE", "STATUS", "LAST RUN"}, jobKind, opts.Output, opts.Quiet)
 }
 
 func (j *Job) runApply(opts registry.OperationOpts) error {

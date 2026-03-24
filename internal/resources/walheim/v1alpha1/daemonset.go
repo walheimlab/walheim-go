@@ -425,7 +425,7 @@ func (d *DaemonSet) runGet(opts registry.OperationOpts) error {
 			return err
 		}
 
-		return output.PrintOne(meta, jsonMode)
+		return output.PrintOne(meta, opts.Output)
 	}
 
 	items, err := d.listAll()
@@ -434,11 +434,11 @@ func (d *DaemonSet) runGet(opts registry.OperationOpts) error {
 	}
 
 	if len(items) == 0 {
-		output.PrintEmpty("daemonsets", "", jsonMode, opts.Quiet)
+		output.PrintEmpty("", daemonSetKind, opts.Output, opts.Quiet)
 		return nil
 	}
 
-	return output.PrintList(items, []string{"NAME", "IMAGE", "SELECTOR", "NAMESPACES"}, jsonMode, opts.Quiet)
+	return output.PrintList(items, []string{"NAME", "IMAGE", "SELECTOR", "NAMESPACES"}, daemonSetKind, opts.Output, opts.Quiet)
 }
 
 func (d *DaemonSet) runApply(opts registry.OperationOpts) error {

@@ -6,86 +6,6 @@ import (
 	"github.com/walheimlab/walheim-go/internal/resource"
 )
 
-// ── flattenMeta ───────────────────────────────────────────────────────────────
-
-func TestFlattenMeta_basic(t *testing.T) {
-	item := resource.ResourceMeta{
-		Namespace: "prod",
-		Name:      "myapp",
-		Summary:   map[string]string{"STATUS": "Running"},
-		Labels:    map[string]string{"env": "prod"},
-	}
-	got := flattenMeta(item)
-
-	if got["namespace"] != "prod" {
-		t.Errorf("namespace = %q, want %q", got["namespace"], "prod")
-	}
-
-	if got["name"] != "myapp" {
-		t.Errorf("name = %q, want %q", got["name"], "myapp")
-	}
-	// Summary keys are lowercased
-	if got["status"] != "Running" {
-		t.Errorf("status = %q, want %q", got["status"], "Running")
-	}
-
-	labels, ok := got["labels"].(map[string]string)
-	if !ok {
-		t.Fatalf("labels not present or wrong type: %T", got["labels"])
-	}
-
-	if labels["env"] != "prod" {
-		t.Errorf("labels[env] = %q, want %q", labels["env"], "prod")
-	}
-}
-
-func TestFlattenMeta_noNamespace(t *testing.T) {
-	item := resource.ResourceMeta{Name: "mything"}
-
-	got := flattenMeta(item)
-	if _, ok := got["namespace"]; ok {
-		t.Error("namespace key should be absent for cluster-scoped resources")
-	}
-
-	if got["name"] != "mything" {
-		t.Errorf("name = %q, want %q", got["name"], "mything")
-	}
-}
-
-func TestFlattenMeta_emptyLabelsOmitted(t *testing.T) {
-	item := resource.ResourceMeta{Name: "x", Labels: map[string]string{}}
-
-	got := flattenMeta(item)
-	if _, ok := got["labels"]; ok {
-		t.Error("labels key should be absent when empty")
-	}
-}
-
-func TestFlattenMeta_nilLabelsOmitted(t *testing.T) {
-	item := resource.ResourceMeta{Name: "x"}
-
-	got := flattenMeta(item)
-	if _, ok := got["labels"]; ok {
-		t.Error("labels key should be absent when nil")
-	}
-}
-
-func TestFlattenMeta_summaryKeysLowercased(t *testing.T) {
-	item := resource.ResourceMeta{
-		Name:    "x",
-		Summary: map[string]string{"MyKey": "val", "UPPER": "u"},
-	}
-
-	got := flattenMeta(item)
-	if got["mykey"] != "val" {
-		t.Errorf("mykey = %q, want %q", got["mykey"], "val")
-	}
-
-	if got["upper"] != "u" {
-		t.Errorf("upper = %q, want %q", got["upper"], "u")
-	}
-}
-
 // ── lookupSummary ─────────────────────────────────────────────────────────────
 
 func TestLookupSummary_exactMatch(t *testing.T) {
@@ -119,5 +39,64 @@ func TestLookupSummary_nilSummary(t *testing.T) {
 	got := lookupSummary(nil, "anything")
 	if got != "" {
 		t.Errorf("lookupSummary(nil) = %q, want empty", got)
+	}
+}
+
+// ── rawToAny ──────────────────────────────────────────────────────────────────
+
+func TestRawToAny_basicStruct(t *testing.T) {
+	type manifest struct {
+		APIVersion string `yaml:"apiVersion"`
+		Kind       string `yaml:"kind"`
+	}
+
+	m := manifest{APIVersion: "walheim/v1alpha1", Kind: "Namespace"}
+
+	obj, err := rawToAny(m)
+	if err != nil {
+		t.Fatalf("rawToAny() error: %v", err)
+	}
+
+	mp, ok := obj.(map[string]any)
+	if !ok {
+		t.Fatalf("expected map[string]any, got %T", obj)
+	}
+
+	if mp["apiVersion"] != "walheim/v1alpha1" {
+		t.Errorf("apiVersion = %q, want %q", mp["apiVersion"], "walheim/v1alpha1")
+	}
+
+	if mp["kind"] != "Namespace" {
+		t.Errorf("kind = %q, want %q", mp["kind"], "Namespace")
+	}
+}
+
+// ── buildEmptyList ────────────────────────────────────────────────────────────
+
+func TestBuildEmptyList(t *testing.T) {
+	info := resource.KindInfo{
+		Group:   "walheim",
+		Version: "v1alpha1",
+		Kind:    "Namespace",
+		Plural:  "namespaces",
+	}
+
+	list := buildEmptyList(info)
+
+	if list["apiVersion"] != "walheim/v1alpha1" {
+		t.Errorf("apiVersion = %q, want %q", list["apiVersion"], "walheim/v1alpha1")
+	}
+
+	if list["kind"] != "NamespaceList" {
+		t.Errorf("kind = %q, want %q", list["kind"], "NamespaceList")
+	}
+
+	items, ok := list["items"].([]any)
+	if !ok {
+		t.Fatalf("items not []any, got %T", list["items"])
+	}
+
+	if len(items) != 0 {
+		t.Errorf("items len = %d, want 0", len(items))
 	}
 }

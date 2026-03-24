@@ -51,7 +51,7 @@ Global flags apply to every command. Set WHCONFIG env var to override config fil
 
 	root.PersistentFlags().StringVar(&gf.Context, "context", "", "Override active context")
 	root.PersistentFlags().StringVar(&gf.Whconfig, "whconfig", "", "Alternate config file path (default: ~/.walheim/config or $WHCONFIG)")
-	root.PersistentFlags().StringVarP(&gf.Output, "output", "o", "table", "Output format: table|json")
+	root.PersistentFlags().StringVarP(&gf.Output, "output", "o", "human", "Output format: human|yaml|json")
 	root.PersistentFlags().BoolVarP(&gf.Quiet, "quiet", "q", false, "Bare output (one item per line, no headers)")
 
 	root.AddGroup(

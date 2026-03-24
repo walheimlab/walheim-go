@@ -97,7 +97,7 @@ type OperationOpts struct {
 	AllNamespaces bool
 
 	// Universal flags (available on every command)
-	Output string // "table" | "json"
+	Output string // "human" | "yaml" | "json"
 	Quiet  bool
 	DryRun bool
 	Yes    bool

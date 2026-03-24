@@ -49,19 +49,19 @@ func Warnf(format string, args ...any) {
 	fmt.Fprintf(os.Stderr, "Warning: "+format+"\n", args...)
 }
 
-// PrintList renders a list of resources as a table or JSON array.
+// PrintList renders a list of resources.
 //
-// columns: ordered column names. "NAMESPACE" and "NAME" are magic tokens;
-// any other name is looked up case-insensitively in ResourceMeta.Summary.
-// For cross-namespace listings pass "NAMESPACE" as the first column.
+// columns: ordered column names for human/table output. "NAMESPACE" and "NAME"
+// are magic tokens; any other name is looked up case-insensitively in ResourceMeta.Summary.
 //
-// In JSON mode: array written to stdout, warnings to stderr.
-// In quiet mode: one NAME per line, no headers.
-func PrintList(items []resource.ResourceMeta, columns []string, jsonMode, quiet bool) error {
-	if jsonMode {
-		return printListJSON(items, columns)
+// format: "human" (default table), "yaml" (K8s List manifest), "json" (K8s List manifest).
+// In quiet mode: one NAME per line, no headers (human only).
+func PrintList(items []resource.ResourceMeta, columns []string, info resource.KindInfo, format string, quiet bool) error {
+	if format == "yaml" || format == "json" {
+		return printListManifest(items, info, format)
 	}
 
+	// human mode
 	if quiet {
 		for _, item := range items {
 			fmt.Println(item.Name)
@@ -73,18 +73,22 @@ func PrintList(items []resource.ResourceMeta, columns []string, jsonMode, quiet 
 	return printListTable(items, columns)
 }
 
-// PrintOne renders a single resource as raw YAML (human) or a JSON object.
-// This is what "get <kind> <name>" uses — not a one-row table.
-func PrintOne(item resource.ResourceMeta, jsonMode bool) error {
-	if jsonMode {
-		obj := flattenMeta(item)
+// PrintOne renders a single resource as its K8s manifest.
+// format: "human"/"yaml" → YAML manifest; "json" → JSON manifest.
+func PrintOne(item resource.ResourceMeta, format string) error {
+	if format == "json" {
+		obj, err := rawToAny(item.Raw)
+		if err != nil {
+			return fmt.Errorf("failed to marshal manifest: %w", err)
+		}
+
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 
 		return enc.Encode(obj)
 	}
 
-	// Human mode: print raw YAML of the manifest
+	// human and yaml both output the YAML manifest
 	data, err := yaml.Marshal(item.Raw)
 	if err != nil {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
@@ -95,24 +99,30 @@ func PrintOne(item resource.ResourceMeta, jsonMode bool) error {
 	return nil
 }
 
-// PrintEmpty prints the appropriate "nothing found" message.
-// In JSON mode: writes [] to stdout.
-// In quiet mode: prints nothing.
-// In human mode: prints "No <kind> found" or "No <kind> found in namespace '<ns>'".
-func PrintEmpty(kind, namespace string, jsonMode, quiet bool) {
-	if jsonMode {
-		fmt.Println("[]")
-		return
-	}
+// PrintEmpty prints the appropriate "nothing found" output.
+// format: "human" → message to stderr; "yaml"/"json" → empty K8s List manifest to stdout.
+// In quiet human mode: prints nothing.
+func PrintEmpty(namespace string, info resource.KindInfo, format string, quiet bool) {
+	switch format {
+	case "yaml":
+		list := buildEmptyList(info)
+		data, _ := yaml.Marshal(list)
+		fmt.Print(string(data))
+	case "json":
+		list := buildEmptyList(info)
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+		_ = enc.Encode(list)
+	default: // human
+		if quiet {
+			return
+		}
 
-	if quiet {
-		return
-	}
-
-	if namespace != "" {
-		fmt.Fprintf(os.Stderr, "No %s found in namespace %q\n", kind, namespace)
-	} else {
-		fmt.Fprintf(os.Stderr, "No %s found\n", kind)
+		if namespace != "" {
+			fmt.Fprintf(os.Stderr, "No %s found in namespace %q\n", info.Plural, namespace)
+		} else {
+			fmt.Fprintf(os.Stderr, "No %s found\n", info.Plural)
+		}
 	}
 }
 
@@ -146,36 +156,67 @@ func printListTable(items []resource.ResourceMeta, columns []string) error {
 	return nil
 }
 
-// printListJSON renders items as a JSON array of flat objects.
-func printListJSON(items []resource.ResourceMeta, columns []string) error {
-	result := make([]map[string]any, len(items))
-	for i, item := range items {
-		result[i] = flattenMeta(item)
+// printListManifest renders items as a K8s List manifest (yaml or json).
+func printListManifest(items []resource.ResourceMeta, info resource.KindInfo, format string) error {
+	rawItems := make([]any, 0, len(items))
+
+	for _, item := range items {
+		obj, err := rawToAny(item.Raw)
+		if err != nil {
+			return fmt.Errorf("failed to marshal manifest: %w", err)
+		}
+
+		rawItems = append(rawItems, obj)
 	}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
+	list := map[string]any{
+		"apiVersion": info.APIVersion(),
+		"kind":       info.Kind + "List",
+		"metadata":   map[string]any{},
+		"items":      rawItems,
+	}
 
-	return enc.Encode(result)
+	if format == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+
+		return enc.Encode(list)
+	}
+
+	data, err := yaml.Marshal(list)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(string(data))
+
+	return nil
 }
 
-// flattenMeta builds a flat map from a ResourceMeta for JSON output.
-func flattenMeta(item resource.ResourceMeta) map[string]any {
-	obj := make(map[string]any)
-	if item.Namespace != "" {
-		obj["namespace"] = item.Namespace
+// buildEmptyList builds an empty K8s List manifest map.
+func buildEmptyList(info resource.KindInfo) map[string]any {
+	return map[string]any{
+		"apiVersion": info.APIVersion(),
+		"kind":       info.Kind + "List",
+		"metadata":   map[string]any{},
+		"items":      []any{},
+	}
+}
+
+// rawToAny converts a typed manifest struct to map[string]any via YAML round-trip,
+// preserving yaml field names for correct JSON serialisation.
+func rawToAny(raw any) (any, error) {
+	data, err := yaml.Marshal(raw)
+	if err != nil {
+		return nil, err
 	}
 
-	obj["name"] = item.Name
-	for k, v := range item.Summary {
-		obj[strings.ToLower(k)] = v
+	var obj any
+	if err := yaml.Unmarshal(data, &obj); err != nil {
+		return nil, err
 	}
 
-	if len(item.Labels) > 0 {
-		obj["labels"] = item.Labels
-	}
-
-	return obj
+	return obj, nil
 }
 
 // lookupSummary does a case-insensitive lookup in the summary map.

@@ -189,7 +189,7 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 			return err
 		}
 
-		return output.PrintOne(meta, jsonMode)
+		return output.PrintOne(meta, opts.Output)
 	}
 
 	// List with status
@@ -217,11 +217,11 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 		}
 
 		if len(items) == 0 {
-			output.PrintEmpty("apps", "", jsonMode, opts.Quiet)
+			output.PrintEmpty("", appKind, opts.Output, opts.Quiet)
 			return nil
 		}
 
-		return output.PrintList(items, []string{"NAMESPACE", "NAME", "IMAGE", "READY", "STATUS"}, jsonMode, opts.Quiet)
+		return output.PrintList(items, []string{"NAMESPACE", "NAME", "IMAGE", "READY", "STATUS"}, appKind, opts.Output, opts.Quiet)
 	}
 
 	// Single namespace list
@@ -234,7 +234,7 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 	}
 
 	if len(manifests) == 0 {
-		output.PrintEmpty("apps", namespace, jsonMode, opts.Quiet)
+		output.PrintEmpty(namespace, appKind, opts.Output, opts.Quiet)
 		return nil
 	}
 
@@ -244,7 +244,7 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 		items[i] = appToMeta(namespace, names[i], m, status, ready)
 	}
 
-	return output.PrintList(items, []string{"NAME", "IMAGE", "READY", "STATUS"}, jsonMode, opts.Quiet)
+	return output.PrintList(items, []string{"NAME", "IMAGE", "READY", "STATUS"}, appKind, opts.Output, opts.Quiet)
 }
 
 func (a *App) runApply(opts registry.OperationOpts) error {

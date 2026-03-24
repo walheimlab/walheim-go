@@ -180,11 +180,11 @@ func (n *Namespace) runGet(opts registry.OperationOpts) error {
 		}
 
 		if len(items) == 0 {
-			output.PrintEmpty("namespaces", "", jsonMode, opts.Quiet)
+			output.PrintEmpty("", namespaceKind, opts.Output, opts.Quiet)
 			return nil
 		}
 
-		return output.PrintList(items, []string{"NAME", "HOSTNAME", "USERNAME"}, jsonMode, opts.Quiet)
+		return output.PrintList(items, []string{"NAME", "HOSTNAME", "USERNAME"}, namespaceKind, opts.Output, opts.Quiet)
 	}
 
 	meta, _, err := n.getOne(opts.Name)
@@ -195,7 +195,7 @@ func (n *Namespace) runGet(opts registry.OperationOpts) error {
 		return err
 	}
 
-	return output.PrintOne(meta, jsonMode)
+	return output.PrintOne(meta, opts.Output)
 }
 
 func (n *Namespace) runCreate(opts registry.OperationOpts) error {
