@@ -17,6 +17,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/resource"
 	"github.com/walheimlab/walheim-go/internal/ssh"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 )
 
 // ── KindInfo & validation ─────────────────────────────────────────────────────
@@ -150,7 +151,7 @@ func (n *Namespace) createSubdirs(name string) error {
 	return nil
 }
 
-func (n *Namespace) countLocalResources(nsName string) namespaceResourceCounts {
+func (n *Namespace) countLocalResources(nsName string) NamespaceResourceCounts {
 	nsDir := n.ResourceDir(nsName)
 	count := func(sub string) int {
 		entries, err := n.FS.ReadDir(filepath.Join(nsDir, sub))
@@ -161,11 +162,27 @@ func (n *Namespace) countLocalResources(nsName string) namespaceResourceCounts {
 		return len(entries)
 	}
 
-	return namespaceResourceCounts{
+	return NamespaceResourceCounts{
 		Apps:       count("apps"),
 		Secrets:    count("secrets"),
 		ConfigMaps: count("configmaps"),
 	}
+}
+
+// localAppNames returns the set of app names in the local context for nsName.
+func (n *Namespace) localAppNames(nsName string) map[string]struct{} {
+	nsDir := n.ResourceDir(nsName)
+	entries, err := n.FS.ReadDir(filepath.Join(nsDir, "apps"))
+	if err != nil {
+		return nil
+	}
+
+	set := make(map[string]struct{}, len(entries))
+	for _, entry := range entries {
+		set[entry] = struct{}{}
+	}
+
+	return set
 }
 
 // ── Operations ────────────────────────────────────────────────────────────────
@@ -187,12 +204,17 @@ func (n *Namespace) runGet(opts registry.OperationOpts) error {
 		return output.PrintList(items, []string{"NAME", "HOSTNAME", "USERNAME"}, namespaceKind, opts.Output, opts.Quiet)
 	}
 
-	meta, _, err := n.getOne(opts.Name)
+	meta, m, err := n.getOne(opts.Name)
 	if err != nil {
 		output.Errorf(jsonMode, "NotFound",
 			fmt.Sprintf("namespace %q not found", opts.Name), "", nil, false)
 
 		return err
+	}
+
+	// For structured output, populate runtime status via SSH and emit a full view.
+	if opts.Output == "json" || opts.Output == "yaml" {
+		return n.getWithStatus(opts.Name, m, opts.Output)
 	}
 
 	return output.PrintOne(meta, opts.Output)
@@ -377,81 +399,89 @@ func (n *Namespace) runDelete(opts registry.OperationOpts) error {
 // ── describe ──────────────────────────────────────────────────────────────────
 
 type namespaceDescribeResult struct {
-	Name         string                  `json:"name"`
-	Hostname     string                  `json:"hostname"`
-	Username     string                  `json:"username,omitempty"`
-	BaseDir      string                  `json:"base_dir"`
-	SSH          string                  `json:"ssh"`
-	Connection   string                  `json:"connection"`
-	Docker       *string                 `json:"docker"`
-	DeployedApps []namespaceDeployedApp  `json:"deployed_apps,omitempty"`
-	Resources    namespaceResourceCounts `json:"resources"`
-	Usage        *namespaceUsage         `json:"usage,omitempty"`
+	APIVersion string                `json:"apiVersion" yaml:"apiVersion"`
+	Kind       string                `json:"kind" yaml:"kind"`
+	Metadata   namespaceDescribeMeta `json:"metadata" yaml:"metadata"`
+	Spec       namespaceDescribeSpec `json:"spec" yaml:"spec"`
+	Status     *NamespaceStatus      `json:"status,omitempty" yaml:"status,omitempty"`
 }
 
-type namespaceDeployedApp struct {
-	Name   string `json:"name"`
-	State  string `json:"state"`
-	Status string `json:"status"`
+type namespaceDescribeMeta struct {
+	Name string `json:"name" yaml:"name"`
 }
 
-type namespaceResourceCounts struct {
-	Apps       int `json:"apps"`
-	Secrets    int `json:"secrets"`
-	ConfigMaps int `json:"configmaps"`
-}
-
-type namespaceUsage struct {
-	Disk       string `json:"disk"`
-	Containers string `json:"containers"`
+type namespaceDescribeSpec struct {
+	Hostname string `json:"hostname" yaml:"hostname"`
+	Username string `json:"username,omitempty" yaml:"username,omitempty"`
+	BaseDir  string `json:"baseDir" yaml:"baseDir"`
 }
 
 func (n *Namespace) runDescribe(opts registry.OperationOpts) error {
-	jsonMode := opts.Output == "json"
 	name := opts.Name
 
 	_, m, err := n.getOne(name)
 	if err != nil {
-		output.Errorf(jsonMode, "NotFound",
+		output.Errorf(false, "NotFound",
 			fmt.Sprintf("namespace %q not found", name), "", nil, false)
 
 		return err
 	}
 
-	target := m.Spec.sshTarget()
-	if jsonMode {
-		return n.describeJSON(name, m, target)
-	}
-
-	return n.describeHuman(name, m, target)
+	return n.describeHuman(name, m, m.Spec.sshTarget())
 }
 
-func (n *Namespace) describeJSON(name string, m *NamespaceManifest, target string) error {
-	result := namespaceDescribeResult{
-		Name:     name,
-		Hostname: m.Spec.Hostname,
-		Username: m.Spec.Username,
-		BaseDir:  m.Spec.remoteBaseDir(),
-		SSH:      target,
+// buildDescribeStatus connects to the namespace host and collects runtime status.
+func (n *Namespace) buildDescribeStatus(name, target string) *NamespaceStatus {
+	status := &NamespaceStatus{
+		Resources: n.countLocalResources(name),
 	}
 
 	client := ssh.NewClient(target)
 	if client.TestConnection() {
-		result.Connection = "Connected"
-		v := namespaceDockerVersion(client)
-		result.Docker = &v
-		result.DeployedApps = namespaceContainers(client, name)
-		result.Usage = namespaceUsageInfo(client)
+		status.Connection = "Connected"
+		status.Docker = namespaceDockerStatus(client)
+		info := namespaceCollectStatus(client, name, n.localAppNames(name))
+		status.DeployedApps = info.DeployedApps
+		status.Containers = info.Containers
+		status.Usage = namespaceUsageInfo(client)
 	} else {
-		result.Connection = "Failed"
+		status.Connection = "Failed"
 	}
 
-	result.Resources = n.countLocalResources(name)
+	return status
+}
 
-	enc := json.NewEncoder(os.Stdout)
-	enc.SetIndent("", "  ")
+func (n *Namespace) getWithStatus(name string, m *NamespaceManifest, format string) error {
+	target := m.Spec.sshTarget()
 
-	return enc.Encode(result)
+	result := namespaceDescribeResult{
+		APIVersion: m.APIVersion,
+		Kind:       m.Kind,
+		Metadata:   namespaceDescribeMeta{Name: name},
+		Spec: namespaceDescribeSpec{
+			Hostname: m.Spec.Hostname,
+			Username: m.Spec.Username,
+			BaseDir:  m.Spec.remoteBaseDir(),
+		},
+		Status: n.buildDescribeStatus(name, target),
+	}
+
+	if format == "json" {
+		enc := json.NewEncoder(os.Stdout)
+		enc.SetIndent("", "  ")
+
+		return enc.Encode(result)
+	}
+
+	// yaml
+	data, err := yamlutil.Marshal(result)
+	if err != nil {
+		return err
+	}
+
+	fmt.Print(string(data))
+
+	return nil
 }
 
 func (n *Namespace) describeHuman(name string, m *NamespaceManifest, target string) error {
@@ -462,78 +492,111 @@ func (n *Namespace) describeHuman(name string, m *NamespaceManifest, target stri
 	fmt.Printf("SSH:       %s\n", target)
 	fmt.Println()
 
-	client := ssh.NewClient(target)
-	if !client.TestConnection() {
-		fmt.Println("Connection:  Failed")
+	fmt.Println("Status:")
+
+	status := n.buildDescribeStatus(name, target)
+
+	fmt.Printf("  Connection:  %s\n", status.Connection)
+
+	if status.Connection == "Failed" {
 		fmt.Println()
-		fmt.Println("Unable to connect. Check SSH configuration.")
+		fmt.Println("  Unable to connect. Check SSH configuration.")
 
 		return nil
 	}
 
-	fmt.Println("Connection:  Connected")
-	fmt.Printf("Docker:      %s\n", namespaceDockerVersion(client))
-	fmt.Println()
-
-	if apps := namespaceContainers(client, name); len(apps) > 0 {
-		fmt.Println("Deployed Apps:")
-
-		for _, a := range apps {
-			fmt.Printf("  %-20s %-12s %s\n", a.Name, a.State, a.Status)
+	if d := status.Docker; d != nil {
+		if d.Available {
+			fmt.Printf("  Docker:      Available (v%s)\n", d.Version)
+		} else {
+			fmt.Println("  Docker:      Not available")
 		}
-
-		fmt.Println()
 	}
 
-	counts := n.countLocalResources(name)
+	if len(status.DeployedApps) > 0 {
+		fmt.Println()
+		fmt.Println("  Deployed Apps:")
 
-	fmt.Println("Resources:")
-	fmt.Printf("  Apps:       %d\n", counts.Apps)
-	fmt.Printf("  Secrets:    %d\n", counts.Secrets)
-	fmt.Printf("  ConfigMaps: %d\n", counts.ConfigMaps)
+		for _, a := range status.DeployedApps {
+			fmt.Printf("    %-20s %-12s %d/%d\n", a.Name, a.State, a.Running, a.Total)
+		}
+	}
+
+	if len(status.Containers) > 0 {
+		fmt.Println()
+		fmt.Println("  Containers:")
+		fmt.Printf("    %-30s %-20s %-10s %-25s %s\n", "NAME", "APP", "STATE", "STATUS", "WALHEIM")
+
+		for _, c := range status.Containers {
+			fmt.Printf("    %-30s %-20s %-10s %-25s %s\n", c.Name, c.App, c.State, c.DockerStatus, c.Management)
+		}
+	}
+
 	fmt.Println()
+	fmt.Println("  Resources:")
+	fmt.Printf("    Apps:       %d\n", status.Resources.Apps)
+	fmt.Printf("    Secrets:    %d\n", status.Resources.Secrets)
+	fmt.Printf("    ConfigMaps: %d\n", status.Resources.ConfigMaps)
 
-	if u := namespaceUsageInfo(client); u != nil {
-		fmt.Println("Usage:")
-		fmt.Printf("  Disk:        %s\n", u.Disk)
-		fmt.Printf("  Containers:  %s\n", u.Containers)
+	if u := status.Usage; u != nil {
+		fmt.Println()
+		fmt.Println("  Usage:")
+
+		if d := u.Disk; d != nil {
+			fmt.Printf("    Disk:        %s used of %s\n", d.Used, d.Total)
+		}
+
+		if c := u.Containers; c != nil {
+			fmt.Printf("    Containers:  %d running, %d stopped\n", c.Running, c.Stopped)
+		}
 	}
 
 	return nil
 }
 
-func namespaceDockerVersion(client *ssh.Client) string {
+func namespaceDockerStatus(client *ssh.Client) *NamespaceDockerStatus {
 	out, err := client.RunOutput("docker --version 2>/dev/null")
 	if err != nil || strings.TrimSpace(out) == "" {
-		return "Not available"
+		return &NamespaceDockerStatus{Available: false}
 	}
 
 	parts := strings.Fields(strings.TrimSpace(out))
 	if len(parts) >= 3 {
-		return fmt.Sprintf("Available (v%s)", strings.TrimSuffix(parts[2], ","))
+		return &NamespaceDockerStatus{
+			Available: true,
+			Version:   strings.TrimSuffix(parts[2], ","),
+		}
 	}
 
-	return fmt.Sprintf("Available (%s)", strings.TrimSpace(out))
+	return &NamespaceDockerStatus{Available: true}
 }
 
-func namespaceContainers(client *ssh.Client, nsName string) []namespaceDeployedApp {
-	cmd := `docker ps -a --filter label=walheim.namespace=` + nsName +
-		` --format "{{.Label "walheim.app"}}|{{.State}}|{{.Status}}" 2>/dev/null`
+type namespaceStatusInfo struct {
+	DeployedApps []NamespaceDeployedApp
+	Containers   []NamespaceContainerStatus
+}
+
+// namespaceCollectStatus fetches all containers on the host in a single
+// docker ps call and returns both the deployed-app summary (walheim-managed,
+// aggregated by app) and the full per-container list with management status.
+func namespaceCollectStatus(client *ssh.Client, nsName string, localApps map[string]struct{}) namespaceStatusInfo {
+	cmd := `docker ps -a --format '{{.Names}}|{{.Label "walheim.namespace"}}|{{.Label "walheim.app"}}|{{.State}}|{{.Status}}' 2>/dev/null`
 
 	out, err := client.RunOutput(cmd)
 	if err != nil || strings.TrimSpace(out) == "" {
-		return nil
+		return namespaceStatusInfo{}
 	}
 
-	type agg struct {
+	type appAgg struct {
 		state   string
 		running int
 		total   int
 	}
 
-	aggMap := make(map[string]*agg)
+	appMap := make(map[string]*appAgg)
 
-	var order []string
+	var appOrder []string
+	var containers []NamespaceContainerStatus
 
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		line = strings.TrimSpace(line)
@@ -541,40 +604,69 @@ func namespaceContainers(client *ssh.Client, nsName string) []namespaceDeployedA
 			continue
 		}
 
-		parts := strings.SplitN(line, "|", 3)
-		if len(parts) < 2 {
+		parts := strings.SplitN(line, "|", 5)
+		if len(parts) < 5 {
 			continue
 		}
 
-		appName, state := parts[0], parts[1]
-		if _, ok := aggMap[appName]; !ok {
-			aggMap[appName] = &agg{}
-			order = append(order, appName)
-		}
+		containerName, labelNs, labelApp, state, dockerStatus := parts[0], parts[1], parts[2], parts[3], parts[4]
 
-		a := aggMap[appName]
+		management := containerManagement(labelNs, labelApp, nsName, localApps)
 
-		a.total++
-		if strings.ToLower(state) == "running" {
-			a.running++
-		}
+		containers = append(containers, NamespaceContainerStatus{
+			Name:         containerName,
+			App:          labelApp,
+			State:        state,
+			DockerStatus: dockerStatus,
+			Management:   management,
+		})
 
-		if a.state == "" || strings.ToLower(state) != "running" {
-			a.state = state
+		// Aggregate deployed-app summary for walheim-owned containers in this namespace.
+		if labelNs == nsName && labelApp != "" {
+			if _, ok := appMap[labelApp]; !ok {
+				appMap[labelApp] = &appAgg{}
+				appOrder = append(appOrder, labelApp)
+			}
+
+			a := appMap[labelApp]
+			a.total++
+
+			if strings.ToLower(state) == "running" {
+				a.running++
+			}
+
+			if a.state == "" || strings.ToLower(state) != "running" {
+				a.state = state
+			}
 		}
 	}
 
-	result := make([]namespaceDeployedApp, 0, len(order))
-	for _, appName := range order {
-		a := aggMap[appName]
-		result = append(result, namespaceDeployedApp{
-			Name:   appName,
-			State:  namespaceAppState(a.state, a.running, a.total),
-			Status: strconv.Itoa(a.running) + "/" + strconv.Itoa(a.total),
+	apps := make([]NamespaceDeployedApp, 0, len(appOrder))
+	for _, appName := range appOrder {
+		a := appMap[appName]
+		apps = append(apps, NamespaceDeployedApp{
+			Name:    appName,
+			State:   namespaceAppState(a.state, a.running, a.total),
+			Running: a.running,
+			Total:   a.total,
 		})
 	}
 
-	return result
+	return namespaceStatusInfo{DeployedApps: apps, Containers: containers}
+}
+
+func containerManagement(labelNs, labelApp, nsName string, localApps map[string]struct{}) string {
+	if labelNs == nsName && labelApp != "" {
+		if localApps != nil {
+			if _, ok := localApps[labelApp]; ok {
+				return "managed"
+			}
+		}
+
+		return "orphan"
+	}
+
+	return "unmanaged"
 }
 
 func namespaceAppState(rawState string, running, total int) string {
@@ -593,33 +685,34 @@ func namespaceAppState(rawState string, running, total int) string {
 	}
 }
 
-func namespaceUsageInfo(client *ssh.Client) *namespaceUsage {
-	diskOut, _ := client.RunOutput("df -h /data 2>/dev/null | tail -1")
-	diskStr := "N/A"
+func namespaceUsageInfo(client *ssh.Client) *NamespaceUsage {
+	usage := &NamespaceUsage{}
+	hasData := false
 
+	diskOut, _ := client.RunOutput("df -h /data 2>/dev/null | tail -1")
 	if line := strings.TrimSpace(diskOut); line != "" {
 		if parts := strings.Fields(line); len(parts) >= 3 {
-			diskStr = parts[2] + " / " + parts[1]
+			usage.Disk = &NamespaceDiskUsage{Used: parts[2], Total: parts[1]}
+			hasData = true
 		}
 	}
 
 	ctOut, _ := client.RunOutput("docker ps -q 2>/dev/null | wc -l; docker ps -aq 2>/dev/null | wc -l")
-	ctStr := "N/A"
-
 	if lines := strings.Split(strings.TrimSpace(ctOut), "\n"); len(lines) >= 2 {
 		run, err1 := strconv.Atoi(strings.TrimSpace(lines[0]))
-
 		total, err2 := strconv.Atoi(strings.TrimSpace(lines[1]))
+
 		if err1 == nil && err2 == nil {
-			ctStr = fmt.Sprintf("%d running, %d stopped", run, total-run)
+			usage.Containers = &NamespaceContainerCounts{Running: run, Stopped: total - run}
+			hasData = true
 		}
 	}
 
-	if diskStr == "N/A" && ctStr == "N/A" {
+	if !hasData {
 		return nil
 	}
 
-	return &namespaceUsage{Disk: diskStr, Containers: ctStr}
+	return usage
 }
 
 // ── doctor ────────────────────────────────────────────────────────────────────
