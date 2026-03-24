@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 )
 
 const (
@@ -101,7 +103,7 @@ func Init(configPath string) (*Config, error) {
 	}
 
 	// Write the skeleton file
-	data, err := yaml.Marshal(cfg)
+	data, err := yamlutil.Marshal(cfg)
 	if err != nil {
 		return nil, &ConfigError{message: fmt.Sprintf("failed to marshal config: %v", err)}
 	}
@@ -163,7 +165,7 @@ func Load(configPath string) (*Config, error) {
 
 // Save writes config atomically (write to temp file, then rename).
 func (c *Config) Save() error {
-	data, err := yaml.Marshal(c)
+	data, err := yamlutil.Marshal(c)
 	if err != nil {
 		return &ConfigError{
 			message: fmt.Sprintf("failed to marshal config: %v", err),

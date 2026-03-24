@@ -13,6 +13,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 	"github.com/walheimlab/walheim-go/internal/resource"
 	"github.com/walheimlab/walheim-go/internal/rsync"
 	"github.com/walheimlab/walheim-go/internal/ssh"
@@ -398,7 +399,7 @@ func generateDaemonSetCompose(namespace, dsName string, m *DaemonSetManifest, fi
 		return err
 	}
 
-	encoded, err := yaml.Marshal(m.Spec.Compose)
+	encoded, err := yamlutil.Marshal(m.Spec.Compose)
 	if err != nil {
 		return fmt.Errorf("marshal docker-compose: %w", err)
 	}

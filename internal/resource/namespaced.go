@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/walheimlab/walheim-go/internal/fs"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 )
 
 const namespacesPlural = "namespaces"
@@ -51,7 +50,7 @@ func (b *NamespacedBase) ReadBytes(namespace, name string) ([]byte, error) {
 
 // WriteManifest YAML-encodes v (any typed struct) and writes it atomically.
 func (b *NamespacedBase) WriteManifest(namespace, name string, v any) error {
-	encoded, err := yaml.Marshal(v)
+	encoded, err := yamlutil.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshal %s/%s in namespace %s: %w", b.Info.Plural, name, namespace, err)
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/output"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/resource"
 	"github.com/walheimlab/walheim-go/internal/rsync"
@@ -511,7 +512,7 @@ func (a *App) runImport(opts registry.OperationOpts) error {
 	}
 
 	if opts.DryRun {
-		encoded, err := yaml.Marshal(m)
+		encoded, err := yamlutil.Marshal(m)
 		if err != nil {
 			return exitErr(exitcode.Failure, err)
 		}

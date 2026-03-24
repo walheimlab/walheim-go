@@ -10,6 +10,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/walheimlab/walheim-go/internal/resource"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 )
 
 // ErrorPayload is emitted to stdout when --output json is set and a command fails.
@@ -58,7 +59,7 @@ func Warnf(format string, args ...any) {
 // In quiet mode: one NAME per line, no headers (human only).
 func PrintList(items []resource.ResourceMeta, columns []string, info resource.KindInfo, format string, quiet bool) error {
 	if format == "yaml" || format == "json" {
-		return printListManifest(items, info, format)
+		return printListManifest(items, format)
 	}
 
 	// human mode
@@ -89,7 +90,7 @@ func PrintOne(item resource.ResourceMeta, format string) error {
 	}
 
 	// human and yaml both output the YAML manifest
-	data, err := yaml.Marshal(item.Raw)
+	data, err := yamlutil.Marshal(item.Raw)
 	if err != nil {
 		return fmt.Errorf("failed to marshal manifest: %w", err)
 	}
@@ -105,11 +106,11 @@ func PrintOne(item resource.ResourceMeta, format string) error {
 func PrintEmpty(namespace string, info resource.KindInfo, format string, quiet bool) {
 	switch format {
 	case "yaml":
-		list := buildEmptyList(info)
-		data, _ := yaml.Marshal(list)
+		list := buildEmptyList()
+		data, _ := yamlutil.Marshal(list)
 		fmt.Print(string(data))
 	case "json":
-		list := buildEmptyList(info)
+		list := buildEmptyList()
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		_ = enc.Encode(list)
@@ -157,7 +158,7 @@ func printListTable(items []resource.ResourceMeta, columns []string) error {
 }
 
 // printListManifest renders items as a K8s List manifest (yaml or json).
-func printListManifest(items []resource.ResourceMeta, info resource.KindInfo, format string) error {
+func printListManifest(items []resource.ResourceMeta, format string) error {
 	rawItems := make([]any, 0, len(items))
 
 	for _, item := range items {
@@ -170,8 +171,8 @@ func printListManifest(items []resource.ResourceMeta, info resource.KindInfo, fo
 	}
 
 	list := map[string]any{
-		"apiVersion": info.APIVersion(),
-		"kind":       info.Kind + "List",
+		"apiVersion": "v1",
+		"kind":       "List",
 		"metadata":   map[string]any{},
 		"items":      rawItems,
 	}
@@ -183,7 +184,7 @@ func printListManifest(items []resource.ResourceMeta, info resource.KindInfo, fo
 		return enc.Encode(list)
 	}
 
-	data, err := yaml.Marshal(list)
+	data, err := yamlutil.Marshal(list)
 	if err != nil {
 		return err
 	}
@@ -193,11 +194,11 @@ func printListManifest(items []resource.ResourceMeta, info resource.KindInfo, fo
 	return nil
 }
 
-// buildEmptyList builds an empty K8s List manifest map.
-func buildEmptyList(info resource.KindInfo) map[string]any {
+// buildEmptyList builds an empty generic List manifest map.
+func buildEmptyList() map[string]any {
 	return map[string]any{
-		"apiVersion": info.APIVersion(),
-		"kind":       info.Kind + "List",
+		"apiVersion": "v1",
+		"kind":       "List",
 		"metadata":   map[string]any{},
 		"items":      []any{},
 	}
@@ -206,7 +207,7 @@ func buildEmptyList(info resource.KindInfo) map[string]any {
 // rawToAny converts a typed manifest struct to map[string]any via YAML round-trip,
 // preserving yaml field names for correct JSON serialisation.
 func rawToAny(raw any) (any, error) {
-	data, err := yaml.Marshal(raw)
+	data, err := yamlutil.Marshal(raw)
 	if err != nil {
 		return nil, err
 	}

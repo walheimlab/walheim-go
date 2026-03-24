@@ -8,6 +8,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/walheimlab/walheim-go/internal/exitcode"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/resource"
@@ -185,7 +186,7 @@ func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 	}
 
 	// Write the updated map[string]string back into the node.
-	updated, err := yaml.Marshal(existing)
+	updated, err := yamlutil.Marshal(existing)
 	if err != nil {
 		return nil, nil, exitcode.New(exitcode.Failure,
 			fmt.Errorf("failed to marshal labels: %w", err))
@@ -199,7 +200,7 @@ func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 	// updatedNode is a document node; its Content[0] is the mapping node.
 	*labelsNode = *updatedNode.Content[0]
 
-	encoded, err := yaml.Marshal(&doc)
+	encoded, err := yamlutil.Marshal(&doc)
 	if err != nil {
 		return nil, nil, exitcode.New(exitcode.Failure,
 			fmt.Errorf("failed to marshal manifest: %w", err))

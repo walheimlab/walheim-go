@@ -16,6 +16,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/walheimlab/walheim-go/internal/fs"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 )
 
 // Envelope holds the GVK and metadata of a single resource document plus the
@@ -175,7 +176,7 @@ func parseDocuments(data []byte) ([]Envelope, error) {
 			continue
 		}
 
-		raw, err := yaml.Marshal(&node)
+		raw, err := yamlutil.Marshal(&node)
 		if err != nil {
 			return nil, err
 		}
@@ -227,7 +228,7 @@ func expandList(node *yaml.Node) ([]Envelope, error) {
 			// standalone YAML document the resource handlers can Unmarshal.
 			doc := &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{item}}
 
-			raw, err := yaml.Marshal(doc)
+			raw, err := yamlutil.Marshal(doc)
 			if err != nil {
 				return nil, err
 			}

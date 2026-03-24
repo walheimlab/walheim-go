@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/walheimlab/walheim-go/internal/fs"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 )
 
 var varPattern = regexp.MustCompile(`\$\{([^}]+)\}`)
@@ -147,7 +148,7 @@ func generateCompose(namespace, name string, m *AppManifest, filesystem fs.FS, d
 	}
 
 	// Step 6 — Marshal and write.
-	encoded, err := yaml.Marshal(m.Spec.Compose)
+	encoded, err := yamlutil.Marshal(m.Spec.Compose)
 	if err != nil {
 		return fmt.Errorf("marshal docker-compose: %w", err)
 	}

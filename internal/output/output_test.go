@@ -2,8 +2,6 @@ package output
 
 import (
 	"testing"
-
-	"github.com/walheimlab/walheim-go/internal/resource"
 )
 
 // ── lookupSummary ─────────────────────────────────────────────────────────────
@@ -74,21 +72,14 @@ func TestRawToAny_basicStruct(t *testing.T) {
 // ── buildEmptyList ────────────────────────────────────────────────────────────
 
 func TestBuildEmptyList(t *testing.T) {
-	info := resource.KindInfo{
-		Group:   "walheim",
-		Version: "v1alpha1",
-		Kind:    "Namespace",
-		Plural:  "namespaces",
+	list := buildEmptyList()
+
+	if list["apiVersion"] != "v1" {
+		t.Errorf("apiVersion = %q, want %q", list["apiVersion"], "v1")
 	}
 
-	list := buildEmptyList(info)
-
-	if list["apiVersion"] != "walheim/v1alpha1" {
-		t.Errorf("apiVersion = %q, want %q", list["apiVersion"], "walheim/v1alpha1")
-	}
-
-	if list["kind"] != "NamespaceList" {
-		t.Errorf("kind = %q, want %q", list["kind"], "NamespaceList")
+	if list["kind"] != "List" {
+		t.Errorf("kind = %q, want %q", list["kind"], "List")
 	}
 
 	items, ok := list["items"].([]any)

@@ -4,9 +4,8 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/walheimlab/walheim-go/internal/fs"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 )
 
 // ClusterBase provides path resolution and raw I/O for cluster-scoped resources.
@@ -48,7 +47,7 @@ func (b *ClusterBase) ReadBytes(name string) ([]byte, error) {
 
 // WriteManifest YAML-encodes v (any typed struct) and writes it atomically.
 func (b *ClusterBase) WriteManifest(name string, v any) error {
-	encoded, err := yaml.Marshal(v)
+	encoded, err := yamlutil.Marshal(v)
 	if err != nil {
 		return fmt.Errorf("marshal %s/%s: %w", b.Info.Plural, name, err)
 	}

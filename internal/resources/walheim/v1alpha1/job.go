@@ -13,6 +13,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
+	"github.com/walheimlab/walheim-go/internal/yamlutil"
 	"github.com/walheimlab/walheim-go/internal/resource"
 	"github.com/walheimlab/walheim-go/internal/rsync"
 	"github.com/walheimlab/walheim-go/internal/ssh"
@@ -308,7 +309,7 @@ func generateJobCompose(localResourceDir, ns, name string, spec JobSpec, filesys
 		Services: map[string]ComposeService{"job": svc},
 	}
 
-	encoded, err := yaml.Marshal(compose)
+	encoded, err := yamlutil.Marshal(compose)
 	if err != nil {
 		return fmt.Errorf("marshal docker-compose: %w", err)
 	}
