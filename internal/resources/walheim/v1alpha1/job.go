@@ -423,17 +423,41 @@ func (j *Job) runGet(opts registry.OperationOpts) error {
 
 		statusMap := j.prefetchJobStatus(namespaces)
 
+		type nsJobResult struct {
+			manifests []*JobManifest
+			names     []string
+			err       error
+		}
+
+		nsResults := make([]nsJobResult, len(namespaces))
+
+		var wg sync.WaitGroup
+
+		for i, ns := range namespaces {
+			wg.Add(1)
+
+			go func(i int, ns string) {
+				defer wg.Done()
+
+				manifests, names, err := j.listNamespace(ns)
+				nsResults[i] = nsJobResult{manifests, names, err}
+			}(i, ns)
+		}
+
+		wg.Wait()
+
 		var items []resource.ResourceMeta
 
-		for _, ns := range namespaces {
-			manifests, names, err := j.listNamespace(ns)
-			if err != nil {
-				return exitErr(exitcode.Failure, err)
+		for i, r := range nsResults {
+			if r.err != nil {
+				return exitErr(exitcode.Failure, r.err)
 			}
 
-			for i, m := range manifests {
-				status, lastRun := aggregateJobStatus(statusMap, ns, names[i])
-				items = append(items, jobToMeta(ns, names[i], m, status, lastRun))
+			ns := namespaces[i]
+
+			for j, m := range r.manifests {
+				status, lastRun := aggregateJobStatus(statusMap, ns, r.names[j])
+				items = append(items, jobToMeta(ns, r.names[j], m, status, lastRun))
 			}
 		}
 

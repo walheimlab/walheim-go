@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -171,15 +172,36 @@ func (c *ConfigMap) runGet(opts registry.OperationOpts) error {
 			return exitErr(exitcode.Failure, err)
 		}
 
+		type nsConfigMapResult struct {
+			items []resource.ResourceMeta
+			err   error
+		}
+
+		nsResults := make([]nsConfigMapResult, len(namespaces))
+
+		var wg sync.WaitGroup
+
+		for i, ns := range namespaces {
+			wg.Add(1)
+
+			go func(i int, ns string) {
+				defer wg.Done()
+
+				items, err := c.listNamespace(ns)
+				nsResults[i] = nsConfigMapResult{items, err}
+			}(i, ns)
+		}
+
+		wg.Wait()
+
 		var items []resource.ResourceMeta
 
-		for _, ns := range namespaces {
-			nsItems, err := c.listNamespace(ns)
-			if err != nil {
-				return exitErr(exitcode.Failure, err)
+		for _, r := range nsResults {
+			if r.err != nil {
+				return exitErr(exitcode.Failure, r.err)
 			}
 
-			items = append(items, nsItems...)
+			items = append(items, r.items...)
 		}
 
 		if len(items) == 0 {

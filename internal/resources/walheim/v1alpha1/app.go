@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -203,17 +204,41 @@ func (a *App) runGet(opts registry.OperationOpts) error {
 
 		statusMap := a.prefetchStatus(namespaces)
 
+		type nsAppResult struct {
+			manifests []*AppManifest
+			names     []string
+			err       error
+		}
+
+		nsResults := make([]nsAppResult, len(namespaces))
+
+		var wg sync.WaitGroup
+
+		for i, ns := range namespaces {
+			wg.Add(1)
+
+			go func(i int, ns string) {
+				defer wg.Done()
+
+				manifests, names, err := a.listNamespace(ns)
+				nsResults[i] = nsAppResult{manifests, names, err}
+			}(i, ns)
+		}
+
+		wg.Wait()
+
 		var items []resource.ResourceMeta
 
-		for _, ns := range namespaces {
-			manifests, names, err := a.listNamespace(ns)
-			if err != nil {
-				return exitErr(exitcode.Failure, err)
+		for i, r := range nsResults {
+			if r.err != nil {
+				return exitErr(exitcode.Failure, r.err)
 			}
 
-			for i, m := range manifests {
-				status, ready := aggregateStatus(statusMap, ns, names[i])
-				items = append(items, appToMeta(ns, names[i], m, status, ready))
+			ns := namespaces[i]
+
+			for j, m := range r.manifests {
+				status, ready := aggregateStatus(statusMap, ns, r.names[j])
+				items = append(items, appToMeta(ns, r.names[j], m, status, ready))
 			}
 		}
 

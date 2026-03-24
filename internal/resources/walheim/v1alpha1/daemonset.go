@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"gopkg.in/yaml.v3"
 
@@ -138,6 +139,23 @@ func (d *DaemonSet) parseManifest(name string) (*DaemonSetManifest, error) {
 	}
 
 	return &m, nil
+}
+
+// copyDaemonSetManifest returns a deep copy of m via YAML round-trip.
+// generateDaemonSetCompose mutates its manifest argument, so each parallel
+// goroutine must work on its own copy.
+func copyDaemonSetManifest(m *DaemonSetManifest) (*DaemonSetManifest, error) {
+	data, err := yaml.Marshal(m)
+	if err != nil {
+		return nil, err
+	}
+
+	var cp DaemonSetManifest
+	if err := yaml.Unmarshal(data, &cp); err != nil {
+		return nil, err
+	}
+
+	return &cp, nil
 }
 
 func daemonSetToMeta(name string, m *DaemonSetManifest, matchedNS []string) resource.ResourceMeta {
@@ -577,21 +595,43 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 		desired[ns] = true
 	}
 
+	// ── Reconcile: remove from namespaces that no longer match (parallel) ───
+	var toRemove []string
+
 	for _, ns := range deployed {
-		if desired[ns] {
-			continue
+		if !desired[ns] {
+			toRemove = append(toRemove, ns)
 		}
+	}
 
-		if opts.DryRun {
+	if opts.DryRun {
+		for _, ns := range toRemove {
 			fmt.Printf("Would remove daemonset %q from namespace %q (no longer selected)\n", name, ns)
-			continue
+		}
+	} else if len(toRemove) > 0 {
+		removeErrs := make([]error, len(toRemove))
+
+		var removeWg sync.WaitGroup
+
+		for i, ns := range toRemove {
+			removeWg.Add(1)
+
+			go func(i int, ns string) {
+				defer removeWg.Done()
+
+				removeErrs[i] = d.stopInNamespace(name, ns)
+			}(i, ns)
 		}
 
-		if err := d.stopInNamespace(name, ns); err != nil {
-			return err
-		}
+		removeWg.Wait()
 
-		fmt.Printf("Removed daemonset %q from namespace %q (no longer selected)\n", name, ns)
+		for i, err := range removeErrs {
+			if err != nil {
+				return err
+			}
+
+			fmt.Printf("Removed daemonset %q from namespace %q (no longer selected)\n", name, toRemove[i])
+		}
 	}
 
 	if len(nsNames) == 0 {
@@ -604,30 +644,54 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 		return nil
 	}
 
-	// ── Deploy to all currently matching namespaces ──────────────────────────
+	// ── Deploy to all currently matching namespaces (parallel) ──────────────
+	deployErrs := make([]error, len(nsNames))
+
+	var deployWg sync.WaitGroup
+
 	for i, ns := range nsNames {
-		nsMeta := nsMetas[i]
-		target := nsMeta.Spec.sshTarget()
+		deployWg.Add(1)
 
-		if err := generateDaemonSetCompose(ns, name, m, d.FS, d.DataDir); err != nil {
-			return exitErr(exitcode.Failure, fmt.Errorf("generate compose for namespace %q: %w", ns, err))
+		go func(i int, ns string, nsMeta *NamespaceManifest) {
+			defer deployWg.Done()
+
+			mc, err := copyDaemonSetManifest(m)
+			if err != nil {
+				deployErrs[i] = exitErr(exitcode.Failure, fmt.Errorf("copy manifest for namespace %q: %w", ns, err))
+				return
+			}
+
+			if err := generateDaemonSetCompose(ns, name, mc, d.FS, d.DataDir); err != nil {
+				deployErrs[i] = exitErr(exitcode.Failure, fmt.Errorf("generate compose for namespace %q: %w", ns, err))
+				return
+			}
+
+			target := nsMeta.Spec.sshTarget()
+			localDir := filepath.Join(d.DataDir, "daemonsets", name, ns)
+			remoteDir := nsMeta.Spec.remoteBaseDir() + "/daemonsets/" + name
+
+			if err := rsync.NewSyncer().Sync(d.FS, localDir, target, remoteDir); err != nil {
+				deployErrs[i] = exitErr(exitcode.Failure, fmt.Errorf("rsync to %q: %w", ns, err))
+				return
+			}
+
+			sshClient := ssh.NewClient(target)
+
+			cmd := "cd " + remoteDir + " && docker compose --progress plain up -d --remove-orphans"
+			if err := sshClient.Run(cmd); err != nil {
+				deployErrs[i] = exitErr(exitcode.Failure, fmt.Errorf("docker compose up in %q: %w", ns, err))
+			}
+		}(i, ns, nsMetas[i])
+	}
+
+	deployWg.Wait()
+
+	for i, err := range deployErrs {
+		if err != nil {
+			return err
 		}
 
-		localDir := filepath.Join(d.DataDir, "daemonsets", name, ns)
-		remoteDir := nsMeta.Spec.remoteBaseDir() + "/daemonsets/" + name
-
-		if err := rsync.NewSyncer().Sync(d.FS, localDir, target, remoteDir); err != nil {
-			return exitErr(exitcode.Failure, fmt.Errorf("rsync to %q: %w", ns, err))
-		}
-
-		sshClient := ssh.NewClient(target)
-
-		cmd := "cd " + remoteDir + " && docker compose --progress plain up -d --remove-orphans"
-		if err := sshClient.Run(cmd); err != nil {
-			return exitErr(exitcode.Failure, fmt.Errorf("docker compose up in %q: %w", ns, err))
-		}
-
-		fmt.Printf("Started daemonset %q in namespace %q\n", name, ns)
+		fmt.Printf("Started daemonset %q in namespace %q\n", name, nsNames[i])
 	}
 
 	return nil
@@ -653,12 +717,28 @@ func (d *DaemonSet) runStop(opts registry.OperationOpts) error {
 		return nil
 	}
 
-	for _, ns := range deployed {
-		if err := d.stopInNamespace(name, ns); err != nil {
+	stopErrs := make([]error, len(deployed))
+
+	var wg sync.WaitGroup
+
+	for i, ns := range deployed {
+		wg.Add(1)
+
+		go func(i int, ns string) {
+			defer wg.Done()
+
+			stopErrs[i] = d.stopInNamespace(name, ns)
+		}(i, ns)
+	}
+
+	wg.Wait()
+
+	for i, err := range stopErrs {
+		if err != nil {
 			return err
 		}
 
-		fmt.Printf("Stopped daemonset %q in namespace %q\n", name, ns)
+		fmt.Printf("Stopped daemonset %q in namespace %q\n", name, deployed[i])
 	}
 
 	return nil
