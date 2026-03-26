@@ -41,8 +41,12 @@ func TestGenerateDaemonSetCompose_injectsWalheimLabels(t *testing.T) {
 		t.Errorf("walheim.namespace = %q, want %q", svc.Labels.Values["walheim.namespace"], "prod")
 	}
 
-	if svc.Labels.Values["walheim.daemonset"] != "my-service" {
-		t.Errorf("walheim.daemonset = %q, want %q", svc.Labels.Values["walheim.daemonset"], "my-service")
+	if svc.Labels.Values["walheim.owner"] != "my-service" {
+		t.Errorf("walheim.owner = %q, want %q", svc.Labels.Values["walheim.owner"], "my-service")
+	}
+
+	if svc.Labels.Values["walheim.kind"] != "DaemonSet" {
+		t.Errorf("walheim.kind = %q, want %q", svc.Labels.Values["walheim.kind"], "DaemonSet")
 	}
 }
 

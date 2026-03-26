@@ -174,8 +174,12 @@ func TestGenerateCompose_injectsWalheimLabels(t *testing.T) {
 		t.Errorf("walheim.namespace = %q, want %q", svc.Labels.Values["walheim.namespace"], "prod")
 	}
 
-	if svc.Labels.Values["walheim.app"] != "myapp" {
-		t.Errorf("walheim.app = %q, want %q", svc.Labels.Values["walheim.app"], "myapp")
+	if svc.Labels.Values["walheim.owner"] != "myapp" {
+		t.Errorf("walheim.owner = %q, want %q", svc.Labels.Values["walheim.owner"], "myapp")
+	}
+
+	if svc.Labels.Values["walheim.kind"] != "App" {
+		t.Errorf("walheim.kind = %q, want %q", svc.Labels.Values["walheim.kind"], "App")
 	}
 }
 
