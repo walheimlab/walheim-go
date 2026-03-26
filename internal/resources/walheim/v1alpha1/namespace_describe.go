@@ -40,16 +40,17 @@ func (n *Namespace) runDescribe(opts registry.OperationOpts) error {
 		return err
 	}
 
-	return n.describeHuman(name, m, m.Spec.SSHTarget())
+	return n.describeHuman(m)
 }
 
 // buildDescribeStatus connects to the namespace host and collects runtime status.
-func (n *Namespace) buildDescribeStatus(name, target string) *apiv1alpha1.NamespaceStatus {
+func (n *Namespace) buildDescribeStatus(ns *apiv1alpha1.Namespace) *apiv1alpha1.NamespaceStatus {
+	name := ns.Name
 	status := &apiv1alpha1.NamespaceStatus{
 		Resources: n.countLocalResources(name),
 	}
 
-	client := ssh.NewClient(target)
+	client := ns.Spec.NewSSHClient()
 	if client.TestConnection() {
 		status.Connection = "Connected"
 		status.Docker = namespaceDockerStatus(client)
@@ -64,17 +65,17 @@ func (n *Namespace) buildDescribeStatus(name, target string) *apiv1alpha1.Namesp
 	return status
 }
 
-func (n *Namespace) describeHuman(name string, m *apiv1alpha1.Namespace, target string) error {
-	fmt.Printf("Name:      %s\n", name)
+func (n *Namespace) describeHuman(m *apiv1alpha1.Namespace) error {
+	fmt.Printf("Name:      %s\n", m.Name)
 	fmt.Printf("Hostname:  %s\n", m.Spec.Hostname)
 	fmt.Printf("Username:  %s\n", m.Spec.UsernameDisplay())
 	fmt.Printf("Base Dir:  %s\n", m.Spec.BaseDirDisplay())
-	fmt.Printf("SSH:       %s\n", target)
+	fmt.Printf("SSH:       %s\n", m.Spec.SSHTarget())
 	fmt.Println()
 
 	fmt.Println("Status:")
 
-	status := n.buildDescribeStatus(name, target)
+	status := n.buildDescribeStatus(m)
 
 	fmt.Printf("  Connection:  %s\n", status.Connection)
 

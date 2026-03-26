@@ -46,8 +46,6 @@ func (n *Namespace) runGet(opts registry.OperationOpts) error {
 }
 
 func (n *Namespace) getWithStatus(name string, m *apiv1alpha1.Namespace, format string) error {
-	target := m.Spec.SSHTarget()
-
 	result := namespaceDescribeResult{
 		APIVersion: m.APIVersion,
 		Kind:       m.Kind,
@@ -57,7 +55,7 @@ func (n *Namespace) getWithStatus(name string, m *apiv1alpha1.Namespace, format 
 			Username: m.Spec.Username,
 			BaseDir:  m.Spec.RemoteBaseDir(),
 		},
-		Status: n.buildDescribeStatus(name, target),
+		Status: n.buildDescribeStatus(m),
 	}
 
 	if format == "json" {

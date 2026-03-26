@@ -7,7 +7,6 @@ import (
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/rsync"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 )
 
 func (a *App) runStart(opts registry.OperationOpts) error {
@@ -42,7 +41,7 @@ func (a *App) runStart(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, fmt.Errorf("rsync: %w", err))
 	}
 
-	sshClient := ssh.NewClient(target)
+	sshClient := nsMeta.Spec.NewSSHClient()
 
 	cmd := "cd " + remoteDir + " && docker compose --progress plain up -d --remove-orphans"
 	if err := sshClient.Run(cmd); err != nil {
@@ -63,15 +62,13 @@ func (a *App) runPause(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.SSHTarget()
-
 	if opts.DryRun {
 		fmt.Printf("Would run docker compose down for app %q in namespace %q\n", name, namespace)
 		return nil
 	}
 
 	remoteAppDir := nsMeta.Spec.RemoteBaseDir() + "/apps/" + name
-	sshClient := ssh.NewClient(target)
+	sshClient := nsMeta.Spec.NewSSHClient()
 
 	_, checkErr := sshClient.RunOutput("test -d " + remoteAppDir)
 	if checkErr != nil {
@@ -111,9 +108,7 @@ func (a *App) runStop(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.SSHTarget()
-
-	sshClient := ssh.NewClient(target)
+	sshClient := nsMeta.Spec.NewSSHClient()
 	if err := sshClient.Run("rm -rf " + nsMeta.Spec.RemoteBaseDir() + "/apps/" + name); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("remove remote files: %w", err))
 	}
@@ -132,15 +127,13 @@ func (a *App) runPull(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, err)
 	}
 
-	target := nsMeta.Spec.SSHTarget()
-
 	if opts.DryRun {
 		fmt.Printf("Would run docker compose pull for app %q in namespace %q\n", name, namespace)
 		return nil
 	}
 
 	remoteAppDir := nsMeta.Spec.RemoteBaseDir() + "/apps/" + name
-	sshClient := ssh.NewClient(target)
+	sshClient := nsMeta.Spec.NewSSHClient()
 
 	_, checkErr := sshClient.RunOutput("test -d " + remoteAppDir)
 	if checkErr != nil {

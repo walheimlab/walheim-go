@@ -10,7 +10,6 @@ import (
 	"github.com/walheimlab/walheim-go/internal/fs"
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/resource"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
@@ -161,10 +160,9 @@ func (d *DaemonSet) stopInNamespace(dsName, ns string) error {
 	if err != nil {
 		output.Warnf("cannot load namespace %q for cleanup: %v — skipping remote cleanup", ns, err)
 	} else {
-		target := nsMeta.Spec.SSHTarget()
 		remoteDir := nsMeta.Spec.RemoteBaseDir() + "/daemonsets/" + dsName
 
-		sshClient := ssh.NewClient(target)
+		sshClient := nsMeta.Spec.NewSSHClient()
 		if _, checkErr := sshClient.RunOutput("test -d " + remoteDir); checkErr == nil {
 			if err := sshClient.Run("cd " + remoteDir + " && docker compose --progress plain down"); err != nil {
 				return exitErr(exitcode.Failure, fmt.Errorf("docker compose down in %q: %w", ns, err))

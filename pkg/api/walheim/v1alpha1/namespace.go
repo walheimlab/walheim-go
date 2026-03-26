@@ -1,6 +1,11 @@
 package v1alpha1
 
-import metav1 "github.com/walheimlab/walheim-go/pkg/api/meta/v1"
+import (
+	"encoding/base64"
+
+	metav1 "github.com/walheimlab/walheim-go/pkg/api/meta/v1"
+	"github.com/walheimlab/walheim-go/internal/ssh"
+)
 
 // DefaultRemoteBaseDir is the remote base directory used when spec.baseDir is
 // not set.
@@ -22,6 +27,9 @@ type NamespaceSpec struct {
 	// BaseDir is the root directory on the remote host where Walheim stores its
 	// data. Defaults to /data/walheim when empty.
 	BaseDir string `yaml:"baseDir,omitempty"`
+	// PrivateKey is an optional base64-encoded PEM private key used for SSH
+	// authentication. When set it takes precedence over all other auth methods.
+	PrivateKey string `yaml:"privateKey,omitempty"`
 }
 
 // RemoteBaseDir returns the effective remote base directory.
@@ -49,6 +57,19 @@ func (s NamespaceSpec) UsernameDisplay() string {
 	}
 
 	return "(from SSH config)"
+}
+
+// NewSSHClient creates an SSH client for this namespace. If PrivateKey is set
+// (base64-encoded PEM), it is decoded and used with highest priority.
+func (s NamespaceSpec) NewSSHClient() *ssh.Client {
+	c := ssh.NewClient(s.SSHTarget())
+	if s.PrivateKey != "" {
+		if key, err := base64.StdEncoding.DecodeString(s.PrivateKey); err == nil {
+			c.IdentityKey = key
+		}
+	}
+
+	return c
 }
 
 // BaseDirDisplay returns a human-readable base dir with default annotation.

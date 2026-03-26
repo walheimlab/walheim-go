@@ -19,7 +19,10 @@ type containerStatus struct {
 // A sentinel key "_ns_<namespace>" records whether the host was reachable.
 func (a *App) prefetchStatus(namespaces []string) map[string]containerStatus {
 	// 1. Resolve unique hosts for each namespace.
-	type nsHost struct{ ns, host string }
+	type nsHost struct {
+		ns     string
+		client *ssh.Client
+	}
 
 	var pairs []nsHost
 
@@ -34,7 +37,8 @@ func (a *App) prefetchStatus(namespaces []string) map[string]containerStatus {
 		host := m.Spec.SSHTarget()
 		if !seen[host] {
 			seen[host] = true
-			pairs = append(pairs, nsHost{ns, host})
+
+			pairs = append(pairs, nsHost{ns, m.Spec.NewSSHClient()})
 		}
 	}
 
@@ -50,7 +54,7 @@ func (a *App) prefetchStatus(namespaces []string) map[string]containerStatus {
 		go func() {
 			defer wg.Done()
 
-			client := ssh.NewClient(p.host)
+			client := p.client
 			out, err := client.RunOutput(
 				`docker ps -a --filter label=walheim.managed=true` +
 					` --format '{{.Label "walheim.namespace"}}|{{.Label "walheim.app"}}|{{.State}}'`)

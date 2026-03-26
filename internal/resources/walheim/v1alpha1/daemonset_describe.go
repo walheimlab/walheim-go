@@ -11,7 +11,6 @@ import (
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 	"github.com/walheimlab/walheim-go/internal/yamlutil"
 	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
@@ -42,8 +41,7 @@ func (d *DaemonSet) fetchDaemonSetStatus(dsName string, nsMetas []*apiv1alpha1.N
 		go func(i int, ns string, nsMeta *apiv1alpha1.Namespace) {
 			defer wg.Done()
 
-			target := nsMeta.Spec.SSHTarget()
-			client := ssh.NewClient(target)
+			client := nsMeta.Spec.NewSSHClient()
 
 			nsStatus := apiv1alpha1.DaemonSetNamespaceStatus{Namespace: ns}
 

@@ -9,7 +9,9 @@ import (
 	"strings"
 	"time"
 
+	sshconfig "github.com/kevinburke/ssh_config"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 	"golang.org/x/term"
 )
 
@@ -21,6 +23,9 @@ type Client struct {
 	ConnectTimeout int
 	// Port overrides the default SSH port (22). 0 means use the default.
 	Port int
+	// IdentityKey is a PEM-encoded private key used for authentication.
+	// Takes precedence over IdentityFile and all other auth methods.
+	IdentityKey []byte
 	// IdentityFile is the path to a PEM-encoded private key for authentication.
 	IdentityFile string
 	// HostKeyCallback verifies the server's host key.
@@ -147,12 +152,33 @@ func (c *Client) TestConnection() bool {
 }
 
 // dial opens an authenticated SSH connection to the remote host.
+// Resolution order for each parameter:
+//  1. Explicit Client field (highest priority)
+//  2. ~/.ssh/config match for the host
+//  3. Built-in defaults (port 22, current OS user, default key paths, SSH agent)
 func (c *Client) dial() (*gossh.Client, error) {
 	sshUser, host := parseRemote(c.RemoteHost)
+
+	// Apply ~/.ssh/config overrides for fields not explicitly set on the Client.
+	cfgHost, cfgUser, cfgPort, cfgIdentityFile := sshConfigLookup(host)
+	if cfgHost != "" {
+		host = cfgHost
+	}
+
+	if sshUser == "" && cfgUser != "" {
+		sshUser = cfgUser
+	}
 
 	port := 22
 	if c.Port != 0 {
 		port = c.Port
+	} else if cfgPort > 0 {
+		port = cfgPort
+	}
+
+	identityFile := c.IdentityFile
+	if identityFile == "" {
+		identityFile = cfgIdentityFile
 	}
 
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
@@ -162,7 +188,7 @@ func (c *Client) dial() (*gossh.Client, error) {
 		timeout = time.Duration(c.ConnectTimeout) * time.Second
 	}
 
-	auth, err := c.authMethods()
+	auth, err := authMethods(c.IdentityKey, identityFile)
 	if err != nil {
 		return nil, err
 	}
@@ -187,24 +213,103 @@ func (c *Client) dial() (*gossh.Client, error) {
 	return conn, nil
 }
 
-// authMethods builds the list of SSH auth methods from the client config.
-func (c *Client) authMethods() ([]gossh.AuthMethod, error) {
-	if c.IdentityFile == "" {
-		return nil, nil
-	}
-
-	key, err := os.ReadFile(c.IdentityFile)
+// sshConfigLookup reads ~/.ssh/config and returns overrides for the given host.
+// Returns empty/zero values for any field not found in the config.
+func sshConfigLookup(host string) (hostname, sshUser string, port int, identityFile string) {
+	u, err := user.Current()
 	if err != nil {
-		return nil, fmt.Errorf("read identity file: %w", err)
+		return
 	}
 
+	f, err := os.Open(u.HomeDir + "/.ssh/config")
+	if err != nil {
+		return
+	}
+	defer f.Close() //nolint:errcheck
+
+	cfg, err := sshconfig.Decode(f)
+	if err != nil {
+		return
+	}
+
+	if h, _ := cfg.Get(host, "Hostname"); h != "" && h != host {
+		hostname = h
+	}
+
+	sshUser, _ = cfg.Get(host, "User")
+
+	if p, _ := cfg.Get(host, "Port"); p != "" && p != "22" {
+		fmt.Sscanf(p, "%d", &port) //nolint:errcheck
+	}
+
+	identityFile, _ = cfg.Get(host, "IdentityFile")
+	if identityFile != "" && strings.HasPrefix(identityFile, "~/") {
+		identityFile = u.HomeDir + identityFile[1:]
+	}
+
+	return
+}
+
+// authMethods builds SSH auth methods in priority order:
+//  1. IdentityKey bytes (highest — explicit key from namespace spec)
+//  2. Explicit identity file path
+//  3. Default key paths (~/.ssh/id_ed25519, id_rsa, id_ecdsa)
+//  4. SSH agent via SSH_AUTH_SOCK
+func authMethods(identityKey []byte, identityFile string) ([]gossh.AuthMethod, error) {
+	var methods []gossh.AuthMethod
+
+	if len(identityKey) > 0 {
+		m, err := signerFromBytes(identityKey)
+		if err != nil {
+			return nil, fmt.Errorf("namespace private key: %w", err)
+		}
+
+		return []gossh.AuthMethod{gossh.PublicKeys(m)}, nil
+	}
+
+	if identityFile != "" {
+		m, err := signerFromFile(identityFile)
+		if err != nil {
+			return nil, err
+		}
+
+		methods = append(methods, gossh.PublicKeys(m))
+	} else {
+		// Fall back to well-known default key paths.
+		if u, err := user.Current(); err == nil {
+			for _, path := range []string{
+				u.HomeDir + "/.ssh/id_ed25519",
+				u.HomeDir + "/.ssh/id_rsa",
+				u.HomeDir + "/.ssh/id_ecdsa",
+			} {
+				m, err := signerFromFile(path)
+				if err != nil {
+					continue // key doesn't exist or can't be read — skip silently
+				}
+
+				methods = append(methods, gossh.PublicKeys(m))
+			}
+		}
+	}
+
+	// Always try the SSH agent as a final fallback.
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		conn, err := net.Dial("unix", sock)
+		if err == nil {
+			methods = append(methods, gossh.PublicKeysCallback(agent.NewClient(conn).Signers))
+		}
+	}
+
+	return methods, nil
+}
+
+// signerFromBytes parses a PEM private key from raw bytes and returns a gossh.Signer.
+func signerFromBytes(key []byte) (gossh.Signer, error) {
 	signer, err := gossh.ParsePrivateKey(key)
 	if err != nil {
 		return nil, fmt.Errorf("parse private key: %w", err)
 	}
 
-	// For RSA keys, restrict to rsa-sha2-256/512. Modern OpenSSH servers
-	// (8.8+) disable the legacy ssh-rsa (SHA-1) algorithm by default.
 	if signer.PublicKey().Type() == gossh.KeyAlgoRSA {
 		if algSigner, ok := signer.(gossh.AlgorithmSigner); ok {
 			signer, err = gossh.NewSignerWithAlgorithms(algSigner,
@@ -215,7 +320,34 @@ func (c *Client) authMethods() ([]gossh.AuthMethod, error) {
 		}
 	}
 
-	return []gossh.AuthMethod{gossh.PublicKeys(signer)}, nil
+	return signer, nil
+}
+
+// signerFromFile loads a PEM private key and returns a gossh.Signer.
+// For RSA keys, it restricts algorithms to rsa-sha2-256/512 to avoid
+// the legacy SHA-1 algorithm disabled in modern OpenSSH servers (8.8+).
+func signerFromFile(path string) (gossh.Signer, error) {
+	key, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read identity file %s: %w", path, err)
+	}
+
+	signer, err := gossh.ParsePrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("parse private key %s: %w", path, err)
+	}
+
+	if signer.PublicKey().Type() == gossh.KeyAlgoRSA {
+		if algSigner, ok := signer.(gossh.AlgorithmSigner); ok {
+			signer, err = gossh.NewSignerWithAlgorithms(algSigner,
+				[]string{gossh.KeyAlgoRSASHA256, gossh.KeyAlgoRSASHA512})
+			if err != nil {
+				return nil, fmt.Errorf("rsa algorithm signer %s: %w", path, err)
+			}
+		}
+	}
+
+	return signer, nil
 }
 
 // parseRemote splits "user@host" into (user, host).

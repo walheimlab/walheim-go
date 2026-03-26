@@ -6,7 +6,6 @@ import (
 
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 )
 
 func (a *App) runLogs(opts registry.OperationOpts) error {
@@ -51,7 +50,7 @@ func (a *App) runLogs(opts registry.OperationOpts) error {
 		return nil
 	}
 
-	sshClient := ssh.NewClient(target)
+	sshClient := nsMeta.Spec.NewSSHClient()
 	if follow {
 		// Replace process via syscall.Exec for proper Ctrl+C handling
 		return sshClient.Exec(cmd, false)

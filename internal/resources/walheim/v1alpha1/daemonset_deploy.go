@@ -9,7 +9,6 @@ import (
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/rsync"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
@@ -115,7 +114,7 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 				return
 			}
 
-			sshClient := ssh.NewClient(target)
+			sshClient := nsMeta.Spec.NewSSHClient()
 
 			cmd := "cd " + remoteDir + " && docker compose --progress plain up -d --remove-orphans"
 			if err := sshClient.Run(cmd); err != nil {

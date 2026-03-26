@@ -10,7 +10,6 @@ import (
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 	"github.com/walheimlab/walheim-go/internal/yamlutil"
 	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
@@ -49,7 +48,7 @@ func (a *App) runDescribe(opts registry.OperationOpts) error {
 	}
 
 	target := nsMeta.Spec.SSHTarget()
-	client := ssh.NewClient(target)
+	client := nsMeta.Spec.NewSSHClient()
 
 	remoteAppDir := nsMeta.Spec.RemoteBaseDir() + "/apps/" + name
 	remoteExists := false

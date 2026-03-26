@@ -6,7 +6,6 @@ import (
 
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 )
 
 func (a *App) runExec(opts registry.OperationOpts) error {
@@ -59,7 +58,7 @@ func (a *App) runExec(opts registry.OperationOpts) error {
 		return nil
 	}
 
-	sshClient := ssh.NewClient(target)
+	sshClient := nsMeta.Spec.NewSSHClient()
 
 	return sshClient.Exec(cmd, tty)
 }

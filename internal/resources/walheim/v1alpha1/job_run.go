@@ -7,7 +7,6 @@ import (
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/registry"
 	"github.com/walheimlab/walheim-go/internal/rsync"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 )
 
 func (j *Job) runRun(opts registry.OperationOpts) error {
@@ -53,7 +52,7 @@ func (j *Job) runRun(opts registry.OperationOpts) error {
 		return exitErr(exitcode.Failure, fmt.Errorf("rsync: %w", err))
 	}
 
-	sshClient := ssh.NewClient(target)
+	sshClient := nsMeta.Spec.NewSSHClient()
 	if err := sshClient.Run(cmd); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("job %q failed: %w", name, err))
 	}

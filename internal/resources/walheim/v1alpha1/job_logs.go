@@ -6,7 +6,6 @@ import (
 
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/ssh"
 )
 
 func (j *Job) runLogs(opts registry.OperationOpts) error {
@@ -42,7 +41,7 @@ func (j *Job) runLogs(opts registry.OperationOpts) error {
 		return nil
 	}
 
-	sshClient := ssh.NewClient(nsMeta.Spec.SSHTarget())
+	sshClient := nsMeta.Spec.NewSSHClient()
 	if follow {
 		return sshClient.Exec(cmd, false)
 	}

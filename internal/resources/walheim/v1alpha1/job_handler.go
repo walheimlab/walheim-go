@@ -66,7 +66,10 @@ type jobRunInfo struct {
 // prefetchJobStatus queries each unique SSH host once (concurrently) and
 // returns a map keyed by "namespace/name" → jobRunInfo (most recent run).
 func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
-	type nsHost struct{ ns, host string }
+	type nsHost struct {
+		ns     string
+		client *ssh.Client
+	}
 
 	var pairs []nsHost
 
@@ -81,7 +84,8 @@ func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
 		host := m.Spec.SSHTarget()
 		if !seen[host] {
 			seen[host] = true
-			pairs = append(pairs, nsHost{ns, host})
+
+			pairs = append(pairs, nsHost{ns, m.Spec.NewSSHClient()})
 		}
 	}
 
@@ -96,7 +100,7 @@ func (j *Job) prefetchJobStatus(namespaces []string) map[string]jobRunInfo {
 		go func() {
 			defer wg.Done()
 
-			client := ssh.NewClient(p.host)
+			client := p.client
 			out, err := client.RunOutput(
 				`docker ps -a` +
 					` --filter "label=walheim.managed=true"` +
