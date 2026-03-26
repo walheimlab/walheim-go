@@ -53,7 +53,8 @@ func generateCompose(namespace, name string, m *apiv1alpha1.App, filesystem fs.F
 
 		svc.Labels.Values["walheim.managed"] = "true"
 		svc.Labels.Values["walheim.namespace"] = namespace
-		svc.Labels.Values["walheim.app"] = name
+		svc.Labels.Values["walheim.owner"] = name
+		svc.Labels.Values["walheim.kind"] = "App"
 		services[svcName] = svc
 	}
 

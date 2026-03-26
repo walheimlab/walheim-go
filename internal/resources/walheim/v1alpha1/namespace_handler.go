@@ -80,3 +80,22 @@ func (n *Namespace) localAppNames(nsName string) map[string]struct{} {
 
 	return set
 }
+
+// localDaemonSetNames returns the set of daemonset names that have been
+// deployed to nsName (i.e. have a per-namespace directory under daemonsets/).
+func (n *Namespace) localDaemonSetNames(nsName string) map[string]struct{} {
+	entries, err := n.FS.ReadDir(filepath.Join(n.DataDir, "daemonsets"))
+	if err != nil {
+		return nil
+	}
+
+	set := make(map[string]struct{})
+	for _, dsName := range entries {
+		nsDir := filepath.Join(n.DataDir, "daemonsets", dsName, nsName)
+		if isDir, err := n.FS.IsDir(nsDir); err == nil && isDir {
+			set[dsName] = struct{}{}
+		}
+	}
+
+	return set
+}

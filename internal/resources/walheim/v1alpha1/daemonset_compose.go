@@ -45,7 +45,8 @@ func generateDaemonSetCompose(namespace, dsName string, m *apiv1alpha1.DaemonSet
 
 		svc.Labels.Values["walheim.managed"] = "true"
 		svc.Labels.Values["walheim.namespace"] = namespace
-		svc.Labels.Values["walheim.daemonset"] = dsName
+		svc.Labels.Values["walheim.owner"] = dsName
+		svc.Labels.Values["walheim.kind"] = "DaemonSet"
 		services[svcName] = svc
 	}
 

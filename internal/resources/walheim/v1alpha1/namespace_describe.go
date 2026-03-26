@@ -54,7 +54,7 @@ func (n *Namespace) buildDescribeStatus(ns *apiv1alpha1.Namespace) *apiv1alpha1.
 	if client.TestConnection() {
 		status.Connection = "Connected"
 		status.Docker = namespaceDockerStatus(client)
-		info := namespaceCollectStatus(client, name, n.localAppNames(name))
+		info := namespaceCollectStatus(client, name, n.localAppNames(name), n.localDaemonSetNames(name))
 		status.DeployedApps = info.DeployedApps
 		status.Containers = info.Containers
 		status.Usage = namespaceUsageInfo(client)
@@ -106,10 +106,15 @@ func (n *Namespace) describeHuman(m *apiv1alpha1.Namespace) error {
 	if len(status.Containers) > 0 {
 		fmt.Println()
 		fmt.Println("  Containers:")
-		fmt.Printf("    %-30s %-20s %-10s %-25s %s\n", "NAME", "APP", "STATE", "STATUS", "WALHEIM")
+		fmt.Printf("    %-30s %-30s %-10s %-25s %s\n", "NAME", "OWNER", "STATE", "STATUS", "WALHEIM")
 
 		for _, c := range status.Containers {
-			fmt.Printf("    %-30s %-20s %-10s %-25s %s\n", c.Name, c.App, c.State, c.DockerStatus, c.Management)
+			owner := c.OwnerName
+			if c.OwnerKind != "" && c.OwnerName != "" {
+				owner = c.OwnerKind + "/" + c.OwnerName
+			}
+
+			fmt.Printf("    %-30s %-30s %-10s %-25s %s\n", c.Name, owner, c.State, c.DockerStatus, c.Management)
 		}
 	}
 
@@ -160,8 +165,8 @@ type namespaceStatusInfo struct {
 // namespaceCollectStatus fetches all containers on the host in a single
 // docker ps call and returns both the deployed-app summary (walheim-managed,
 // aggregated by app) and the full per-container list with management status.
-func namespaceCollectStatus(client *ssh.Client, nsName string, localApps map[string]struct{}) namespaceStatusInfo {
-	cmd := `docker ps -a --format '{{.Names}}|{{.Label "walheim.namespace"}}|{{.Label "walheim.app"}}|{{.State}}|{{.Status}}' 2>/dev/null`
+func namespaceCollectStatus(client *ssh.Client, nsName string, localApps, localDaemonSets map[string]struct{}) namespaceStatusInfo {
+	cmd := `docker ps -a --format '{{.Names}}|{{.Label "walheim.namespace"}}|{{.Label "walheim.kind"}}|{{.Label "walheim.owner"}}|{{.State}}|{{.Status}}' 2>/dev/null`
 
 	out, err := client.RunOutput(cmd)
 	if err != nil || strings.TrimSpace(out) == "" {
@@ -186,39 +191,42 @@ func namespaceCollectStatus(client *ssh.Client, nsName string, localApps map[str
 			continue
 		}
 
-		parts := strings.SplitN(line, "|", 5)
-		if len(parts) < 5 {
+		parts := strings.SplitN(line, "|", 6)
+		if len(parts) < 6 {
 			continue
 		}
 
-		containerName, labelNs, labelApp, state, dockerStatus := parts[0], parts[1], parts[2], parts[3], parts[4]
+		containerName, labelNs, labelKind, labelOwner, state, dockerStatus := parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]
 
-		management := containerManagement(labelNs, labelApp, nsName, localApps)
+		management := containerManagement(labelNs, labelKind, labelOwner, nsName, localApps, localDaemonSets)
 
 		containers = append(containers, apiv1alpha1.NamespaceContainerStatus{
 			Name:         containerName,
-			App:          labelApp,
+			OwnerName:    labelOwner,
+			OwnerKind:    labelKind,
 			State:        state,
 			DockerStatus: dockerStatus,
 			Management:   management,
 		})
 
-		// Aggregate deployed-app summary for walheim-owned containers in this namespace.
-		if labelNs == nsName && labelApp != "" {
-			if _, ok := appMap[labelApp]; !ok {
-				appMap[labelApp] = &appAgg{}
-				appOrder = append(appOrder, labelApp)
-			}
+		// Aggregate deployed-app summary for App-kind containers in this namespace.
+		if labelNs == nsName && labelKind == "App" && labelOwner != "" {
+			if _, ok := localApps[labelOwner]; ok {
+				if _, ok := appMap[labelOwner]; !ok {
+					appMap[labelOwner] = &appAgg{}
+					appOrder = append(appOrder, labelOwner)
+				}
 
-			a := appMap[labelApp]
-			a.total++
+				a := appMap[labelOwner]
+				a.total++
 
-			if strings.ToLower(state) == "running" {
-				a.running++
-			}
+				if strings.ToLower(state) == "running" {
+					a.running++
+				}
 
-			if a.state == "" || strings.ToLower(state) != "running" {
-				a.state = state
+				if a.state == "" || strings.ToLower(state) != "running" {
+					a.state = state
+				}
 			}
 		}
 	}
@@ -237,18 +245,23 @@ func namespaceCollectStatus(client *ssh.Client, nsName string, localApps map[str
 	return namespaceStatusInfo{DeployedApps: apps, Containers: containers}
 }
 
-func containerManagement(labelNs, labelApp, nsName string, localApps map[string]struct{}) string {
-	if labelNs == nsName && labelApp != "" {
-		if localApps != nil {
-			if _, ok := localApps[labelApp]; ok {
-				return "managed"
-			}
-		}
-
-		return "orphan"
+func containerManagement(labelNs, labelKind, labelOwner, nsName string, localApps, localDaemonSets map[string]struct{}) string {
+	if labelNs != nsName || labelOwner == "" {
+		return "unmanaged"
 	}
 
-	return "unmanaged"
+	switch labelKind {
+	case "App":
+		if _, ok := localApps[labelOwner]; ok {
+			return "managed"
+		}
+	case "DaemonSet":
+		if _, ok := localDaemonSets[labelOwner]; ok {
+			return "managed"
+		}
+	}
+
+	return "orphan"
 }
 
 func namespaceAppState(rawState string, running, total int) string {

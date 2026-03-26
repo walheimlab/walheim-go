@@ -123,7 +123,8 @@ type NamespaceDeployedApp struct {
 // the namespace host. Management is one of "managed", "unmanaged", or "orphan".
 type NamespaceContainerStatus struct {
 	Name         string `json:"name" yaml:"name"`
-	App          string `json:"app,omitempty" yaml:"app,omitempty"`
+	OwnerName    string `json:"ownerName,omitempty" yaml:"ownerName,omitempty"`
+	OwnerKind    string `json:"ownerKind,omitempty" yaml:"ownerKind,omitempty"`
 	State        string `json:"state" yaml:"state"`
 	DockerStatus string `json:"dockerStatus" yaml:"dockerStatus"`
 	Management   string `json:"management" yaml:"management"`
