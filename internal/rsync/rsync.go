@@ -11,6 +11,7 @@ import (
 
 	"github.com/pkg/sftp"
 	gossh "golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/agent"
 
 	wfs "github.com/walheimlab/walheim-go/internal/fs"
 )
@@ -20,6 +21,9 @@ import (
 type Syncer struct {
 	// Port overrides the default SSH port (22). 0 means use the default.
 	Port int
+	// IdentityKey is a PEM-encoded private key for authentication.
+	// Takes precedence over IdentityFile and all other auth methods.
+	IdentityKey []byte
 	// IdentityFile is the path to a PEM-encoded private key for authentication.
 	IdentityFile string
 }
@@ -40,32 +44,9 @@ func (s *Syncer) Sync(filesystem wfs.FS, localRoot, remoteHost, remoteDir string
 
 	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
 
-	var authMethods []gossh.AuthMethod
-
-	if s.IdentityFile != "" {
-		key, err := os.ReadFile(s.IdentityFile)
-		if err != nil {
-			return fmt.Errorf("read identity file: %w", err)
-		}
-
-		signer, err := gossh.ParsePrivateKey(key)
-		if err != nil {
-			return fmt.Errorf("parse private key: %w", err)
-		}
-
-		// For RSA keys, restrict to rsa-sha2-256/512. Modern OpenSSH servers
-		// (8.8+) disable the legacy ssh-rsa (SHA-1) algorithm by default.
-		if signer.PublicKey().Type() == gossh.KeyAlgoRSA {
-			if algSigner, ok := signer.(gossh.AlgorithmSigner); ok {
-				signer, err = gossh.NewSignerWithAlgorithms(algSigner,
-					[]string{gossh.KeyAlgoRSASHA256, gossh.KeyAlgoRSASHA512})
-				if err != nil {
-					return fmt.Errorf("rsa algorithm signer: %w", err)
-				}
-			}
-		}
-
-		authMethods = append(authMethods, gossh.PublicKeys(signer))
+	authMethods, err := s.buildAuthMethods()
+	if err != nil {
+		return err
 	}
 
 	cfg := &gossh.ClientConfig{
@@ -141,6 +122,86 @@ func upload(client *sftp.Client, filesystem wfs.FS, localPath, remotePath string
 	}
 
 	return nil
+}
+
+// buildAuthMethods returns SSH auth methods using the same priority chain as
+// internal/ssh.Client: IdentityKey > IdentityFile > default key paths > SSH agent.
+func (s *Syncer) buildAuthMethods() ([]gossh.AuthMethod, error) {
+	var methods []gossh.AuthMethod
+
+	if len(s.IdentityKey) > 0 {
+		m, err := signerFromBytes(s.IdentityKey)
+		if err != nil {
+			return nil, fmt.Errorf("identity key: %w", err)
+		}
+
+		return []gossh.AuthMethod{gossh.PublicKeys(m)}, nil
+	}
+
+	if s.IdentityFile != "" {
+		m, err := signerFromFile(s.IdentityFile)
+		if err != nil {
+			return nil, err
+		}
+
+		methods = append(methods, gossh.PublicKeys(m))
+	} else {
+		if u, err := user.Current(); err == nil {
+			for _, path := range []string{
+				u.HomeDir + "/.ssh/id_ed25519",
+				u.HomeDir + "/.ssh/id_rsa",
+				u.HomeDir + "/.ssh/id_ecdsa",
+			} {
+				m, err := signerFromFile(path)
+				if err != nil {
+					continue
+				}
+
+				methods = append(methods, gossh.PublicKeys(m))
+			}
+		}
+	}
+
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		conn, err := net.Dial("unix", sock)
+		if err == nil {
+			methods = append(methods, gossh.PublicKeysCallback(agent.NewClient(conn).Signers))
+		}
+	}
+
+	return methods, nil
+}
+
+// signerFromFile reads a PEM private key from path and returns a gossh.Signer.
+func signerFromFile(path string) (gossh.Signer, error) {
+	key, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read identity file %s: %w", path, err)
+	}
+
+	return signerFromBytes(key)
+}
+
+// signerFromBytes parses a PEM private key from raw bytes and returns a gossh.Signer.
+func signerFromBytes(key []byte) (gossh.Signer, error) {
+	signer, err := gossh.ParsePrivateKey(key)
+	if err != nil {
+		return nil, fmt.Errorf("parse private key: %w", err)
+	}
+
+	// For RSA keys, restrict to rsa-sha2-256/512. Modern OpenSSH servers
+	// (8.8+) disable the legacy ssh-rsa (SHA-1) algorithm by default.
+	if signer.PublicKey().Type() == gossh.KeyAlgoRSA {
+		if algSigner, ok := signer.(gossh.AlgorithmSigner); ok {
+			signer, err = gossh.NewSignerWithAlgorithms(algSigner,
+				[]string{gossh.KeyAlgoRSASHA256, gossh.KeyAlgoRSASHA512})
+			if err != nil {
+				return nil, fmt.Errorf("rsa algorithm signer: %w", err)
+			}
+		}
+	}
+
+	return signer, nil
 }
 
 // parseRemote splits "user@host" into (user, host).

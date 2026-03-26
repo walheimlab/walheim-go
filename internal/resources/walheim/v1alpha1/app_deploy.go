@@ -6,7 +6,6 @@ import (
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/output"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/rsync"
 )
 
 func (a *App) runStart(opts registry.OperationOpts) error {
@@ -37,7 +36,7 @@ func (a *App) runStart(opts registry.OperationOpts) error {
 	localDir := a.ResourceDir(namespace, name)
 	remoteDir := nsMeta.Spec.RemoteBaseDir() + "/apps/" + name
 
-	if err := rsync.NewSyncer().Sync(a.FS, localDir, target, remoteDir); err != nil {
+	if err := nsMeta.Spec.NewSyncer().Sync(a.FS, localDir, target, remoteDir); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("rsync: %w", err))
 	}
 

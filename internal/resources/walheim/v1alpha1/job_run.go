@@ -6,7 +6,6 @@ import (
 
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/rsync"
 )
 
 func (j *Job) runRun(opts registry.OperationOpts) error {
@@ -48,7 +47,7 @@ func (j *Job) runRun(opts registry.OperationOpts) error {
 		return nil
 	}
 
-	if err := rsync.NewSyncer().Sync(j.FS, localResourceDir, target, remoteResourceDir); err != nil {
+	if err := nsMeta.Spec.NewSyncer().Sync(j.FS, localResourceDir, target, remoteResourceDir); err != nil {
 		return exitErr(exitcode.Failure, fmt.Errorf("rsync: %w", err))
 	}
 

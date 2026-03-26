@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 
 	metav1 "github.com/walheimlab/walheim-go/pkg/api/meta/v1"
+	"github.com/walheimlab/walheim-go/internal/rsync"
 	"github.com/walheimlab/walheim-go/internal/ssh"
 )
 
@@ -70,6 +71,19 @@ func (s NamespaceSpec) NewSSHClient() *ssh.Client {
 	}
 
 	return c
+}
+
+// NewSyncer creates an rsync.Syncer configured with this namespace's auth.
+// If PrivateKey is set, it is decoded and used with highest priority.
+func (s NamespaceSpec) NewSyncer() *rsync.Syncer {
+	syn := rsync.NewSyncer()
+	if s.PrivateKey != "" {
+		if key, err := base64.StdEncoding.DecodeString(s.PrivateKey); err == nil {
+			syn.IdentityKey = key
+		}
+	}
+
+	return syn
 }
 
 // BaseDirDisplay returns a human-readable base dir with default annotation.

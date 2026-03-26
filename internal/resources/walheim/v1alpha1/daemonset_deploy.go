@@ -8,7 +8,6 @@ import (
 
 	"github.com/walheimlab/walheim-go/internal/exitcode"
 	"github.com/walheimlab/walheim-go/internal/registry"
-	"github.com/walheimlab/walheim-go/internal/rsync"
 	apiv1alpha1 "github.com/walheimlab/walheim-go/pkg/api/walheim/v1alpha1"
 )
 
@@ -109,7 +108,7 @@ func (d *DaemonSet) runStart(opts registry.OperationOpts) error {
 			localDir := filepath.Join(d.DataDir, "daemonsets", name, ns)
 			remoteDir := nsMeta.Spec.RemoteBaseDir() + "/daemonsets/" + name
 
-			if err := rsync.NewSyncer().Sync(d.FS, localDir, target, remoteDir); err != nil {
+			if err := nsMeta.Spec.NewSyncer().Sync(d.FS, localDir, target, remoteDir); err != nil {
 				deployErrs[i] = exitErr(exitcode.Failure, fmt.Errorf("rsync to %q: %w", ns, err))
 				return
 			}
