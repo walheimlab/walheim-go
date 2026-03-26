@@ -20,6 +20,10 @@ coverage.html
 Thumbs.db
 reports/
 
-# Integration test SSH keys (generated on first run, not committed)
-internal/integration/testdata/id_ed25519
-internal/integration/testdata/id_ed25519.pub
+# Integration test SSH keys
+internal/integration/testdata/id_*
+
+# Agent files
+/.agents/
+/.claude/
+
