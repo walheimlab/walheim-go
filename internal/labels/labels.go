@@ -31,10 +31,10 @@ func validateKey(key string) error {
 	return nil
 }
 
-// resolveManifestPath returns the path to the resource's manifest file.
+// ResolvePath returns the path to the resource's manifest file.
 // Returns exitcode-wrapped errors for kind/scope problems so callers can
 // classify them without re-inspecting the message string.
-func resolveManifestPath(filesystem fs.FS, dataDir, kind, name, namespace string) (string, error) {
+func ResolvePath(filesystem fs.FS, dataDir, kind, name, namespace string) (string, error) {
 	entry := registry.Get(kind)
 	if entry == nil {
 		return "", exitcode.New(exitcode.UsageError,
@@ -96,7 +96,7 @@ func readManifestDoc(filesystem fs.FS, manifestPath string) (yaml.Node, error) {
 // Get reads and returns the labels map from a resource manifest.
 // Returns an empty (non-nil) map when metadata.labels is absent.
 func Get(filesystem fs.FS, dataDir, kind, name, namespace string) (map[string]string, error) {
-	manifestPath, err := resolveManifestPath(filesystem, dataDir, kind, name, namespace)
+	manifestPath, err := ResolvePath(filesystem, dataDir, kind, name, namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +130,7 @@ func Get(filesystem fs.FS, dataDir, kind, name, namespace string) (map[string]st
 // them without inspecting message strings.
 func SetTracked(filesystem fs.FS, dataDir, kind, name, namespace string,
 	specs []string, overwrite bool) (changed, removed []string, err error) {
-	manifestPath, err := resolveManifestPath(filesystem, dataDir, kind, name, namespace)
+	manifestPath, err := ResolvePath(filesystem, dataDir, kind, name, namespace)
 	if err != nil {
 		return nil, nil, err
 	}

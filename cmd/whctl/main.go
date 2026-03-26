@@ -78,6 +78,10 @@ Global flags apply to every command. Set WHCONFIG env var to override config fil
 	labelCmd.GroupID = "mgmt"
 	root.AddCommand(labelCmd)
 
+	editCmd := newEditCmd(gf)
+	editCmd.GroupID = "mgmt"
+	root.AddCommand(editCmd)
+
 	BuildCommandTree(root, gf)
 
 	return root
@@ -337,6 +341,7 @@ var verbDefaults = map[string]string{
 	"logs":     "Print logs for a resource",
 	"exec":     "Execute a command in a resource",
 	"run":      "Run a job on its target host",
+	"edit":     "Edit a resource manifest in your editor",
 }
 
 // verbShort returns the canonical short description for a verb.
