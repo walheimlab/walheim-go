@@ -2,19 +2,27 @@ package rsync
 
 import (
 	"fmt"
+	"net"
 	"os"
-	"os/exec"
+	"os/user"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"github.com/pkg/sftp"
+	gossh "golang.org/x/crypto/ssh"
 
 	wfs "github.com/walheimlab/walheim-go/internal/fs"
 )
 
-// Syncer uploads files from a walheim FS to a remote host via SFTP.
-// It starts the system ssh binary with -s sftp as the transport, reusing
-// system SSH key management and agent forwarding.
-type Syncer struct{}
+// Syncer uploads files from a walheim FS to a remote host via SFTP over a
+// pure-Go SSH connection — no system ssh binary required.
+type Syncer struct {
+	// Port overrides the default SSH port (22). 0 means use the default.
+	Port int
+	// IdentityFile is the path to a PEM-encoded private key for authentication.
+	IdentityFile string
+}
 
 // NewSyncer creates a new Syncer.
 func NewSyncer() *Syncer { return &Syncer{} }
@@ -23,39 +31,63 @@ func NewSyncer() *Syncer { return &Syncer{} }
 // Hidden files (names starting with ".") are skipped, matching ReadDir semantics.
 // Existing remote files are overwritten; remote-only files are left in place.
 func (s *Syncer) Sync(filesystem wfs.FS, localRoot, remoteHost, remoteDir string) error {
-	cmd := exec.Command("ssh",
-		"-o", "ConnectTimeout=5",
-		"-o", "BatchMode=yes",
-		"-o", "StrictHostKeyChecking=accept-new",
-		"-s",
-		remoteHost,
-		"sftp",
-	)
+	sshUser, host := parseRemote(remoteHost)
 
-	stdin, err := cmd.StdinPipe()
+	port := 22
+	if s.Port != 0 {
+		port = s.Port
+	}
+
+	addr := net.JoinHostPort(host, fmt.Sprintf("%d", port))
+
+	var authMethods []gossh.AuthMethod
+
+	if s.IdentityFile != "" {
+		key, err := os.ReadFile(s.IdentityFile)
+		if err != nil {
+			return fmt.Errorf("read identity file: %w", err)
+		}
+
+		signer, err := gossh.ParsePrivateKey(key)
+		if err != nil {
+			return fmt.Errorf("parse private key: %w", err)
+		}
+
+		// For RSA keys, restrict to rsa-sha2-256/512. Modern OpenSSH servers
+		// (8.8+) disable the legacy ssh-rsa (SHA-1) algorithm by default.
+		if signer.PublicKey().Type() == gossh.KeyAlgoRSA {
+			if algSigner, ok := signer.(gossh.AlgorithmSigner); ok {
+				signer, err = gossh.NewSignerWithAlgorithms(algSigner,
+					[]string{gossh.KeyAlgoRSASHA256, gossh.KeyAlgoRSASHA512})
+				if err != nil {
+					return fmt.Errorf("rsa algorithm signer: %w", err)
+				}
+			}
+		}
+
+		authMethods = append(authMethods, gossh.PublicKeys(signer))
+	}
+
+	cfg := &gossh.ClientConfig{
+		User:            sshUser,
+		Auth:            authMethods,
+		HostKeyCallback: gossh.InsecureIgnoreHostKey(), //nolint:gosec
+		Timeout:         5 * time.Second,
+	}
+
+	conn, err := gossh.Dial("tcp", addr, cfg)
 	if err != nil {
-		return fmt.Errorf("sftp stdin pipe: %w", err)
+		return fmt.Errorf("ssh dial %s: %w", addr, err)
 	}
 
-	stdout, err := cmd.StdoutPipe()
-	if err != nil {
-		return fmt.Errorf("sftp stdout pipe: %w", err)
-	}
+	defer conn.Close() //nolint:errcheck
 
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start ssh sftp: %w", err)
-	}
-
-	defer func() { _ = cmd.Wait() }()
-
-	client, err := sftp.NewClientPipe(stdout, stdin)
+	client, err := sftp.NewClient(conn)
 	if err != nil {
 		return fmt.Errorf("sftp client: %w", err)
 	}
 
-	defer func() { _ = client.Close() }()
+	defer client.Close() //nolint:errcheck
 
 	if err := client.MkdirAll(remoteDir); err != nil {
 		return fmt.Errorf("mkdir remote %s: %w", remoteDir, err)
@@ -109,4 +141,18 @@ func upload(client *sftp.Client, filesystem wfs.FS, localPath, remotePath string
 	}
 
 	return nil
+}
+
+// parseRemote splits "user@host" into (user, host).
+// If no user is present, the current OS username is used.
+func parseRemote(remote string) (sshUser, host string) {
+	if idx := strings.LastIndex(remote, "@"); idx >= 0 {
+		return remote[:idx], remote[idx+1:]
+	}
+
+	if u, err := user.Current(); err == nil {
+		return u.Username, remote
+	}
+
+	return "", remote
 }

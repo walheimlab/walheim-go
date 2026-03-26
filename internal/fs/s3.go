@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"path"
 	"sort"
 	"strings"
@@ -16,7 +15,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
-	smithyendpoints "github.com/aws/smithy-go/endpoints"
 )
 
 // S3FSConfig holds configuration for constructing an S3FS.
@@ -57,15 +55,15 @@ func NewS3FS(cfg S3FSConfig) (*S3FS, error) {
 	}
 
 	clientOpts := []func(*s3.Options){}
+
 	if cfg.Endpoint != "" {
-		clientOpts = append(clientOpts, s3.WithEndpointResolverV2(
-			&staticEndpointResolver{rawURL: cfg.Endpoint},
-		))
-		// Enable path-style addressing for custom endpoints so requests go to
-		// <endpoint>/<bucket>/key instead of <bucket>.<endpoint>/key.
-		// This is required for MinIO and most self-hosted S3-compatible services,
-		// and works equally well with Cloudflare R2 and DigitalOcean Spaces.
+		// BaseEndpoint + UsePathStyle routes all requests to <endpoint>/<bucket>/key
+		// (path-style) instead of <bucket>.<endpoint>/key (virtual-hosted style).
+		// This is required for MinIO and most self-hosted S3-compatible services.
+		endpoint := cfg.Endpoint
+
 		clientOpts = append(clientOpts, func(o *s3.Options) {
+			o.BaseEndpoint = aws.String(endpoint)
 			o.UsePathStyle = true
 		})
 	}
@@ -311,16 +309,3 @@ func isNotFound(err error) bool {
 	return errors.As(err, &noSuchKey) || errors.As(err, &notFound)
 }
 
-// staticEndpointResolver implements s3.EndpointResolverV2 for custom S3-compatible endpoints.
-type staticEndpointResolver struct {
-	rawURL string
-}
-
-func (r *staticEndpointResolver) ResolveEndpoint(_ context.Context, _ s3.EndpointParameters) (smithyendpoints.Endpoint, error) {
-	u, err := url.Parse(r.rawURL)
-	if err != nil {
-		return smithyendpoints.Endpoint{}, fmt.Errorf("invalid S3 endpoint URL %q: %w", r.rawURL, err)
-	}
-
-	return smithyendpoints.Endpoint{URI: *u}, nil
-}
