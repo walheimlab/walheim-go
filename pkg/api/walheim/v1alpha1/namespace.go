@@ -77,6 +77,7 @@ func (s NamespaceSpec) NewSSHClient() *ssh.Client {
 // If PrivateKey is set, it is decoded and used with highest priority.
 func (s NamespaceSpec) NewSyncer() *rsync.Syncer {
 	syn := rsync.NewSyncer()
+
 	if s.PrivateKey != "" {
 		if key, err := base64.StdEncoding.DecodeString(s.PrivateKey); err == nil {
 			syn.IdentityKey = key

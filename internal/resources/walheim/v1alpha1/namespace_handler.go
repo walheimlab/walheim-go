@@ -90,6 +90,7 @@ func (n *Namespace) localDaemonSetNames(nsName string) map[string]struct{} {
 	}
 
 	set := make(map[string]struct{})
+
 	for _, dsName := range entries {
 		nsDir := filepath.Join(n.DataDir, "daemonsets", dsName, nsName)
 		if isDir, err := n.FS.IsDir(nsDir); err == nil && isDir {

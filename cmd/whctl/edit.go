@@ -77,7 +77,8 @@ func runEdit(filesystem fs.FS, dataDir, kind, name, namespace string, gf *Global
 	}
 
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	if _, err := tmp.Write(original); err != nil {
 		_ = tmp.Close()
