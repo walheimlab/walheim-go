@@ -2,16 +2,8 @@ name: Docker
 
 on:
   push:
-    branches:
-      - 'main'
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - 'main'
-    paths:
-      - 'Dockerfile'
-      - '.dockerignore'
 
 env:
   REGISTRY: ghcr.io
