@@ -20,7 +20,6 @@ import (
 	"github.com/aws/aws-sdk-go-v2/credentials"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
 	s3types "github.com/aws/aws-sdk-go-v2/service/s3/types"
-	"github.com/docker/go-connections/nat"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 	gossh "golang.org/x/crypto/ssh"
@@ -274,12 +273,12 @@ func containerAddr(ctx context.Context, c testcontainers.Container, port string)
 		return "", 0, fmt.Errorf("host: %w", err)
 	}
 
-	mapped, err := c.MappedPort(ctx, nat.Port(port))
+	mapped, err := c.MappedPort(ctx, port)
 	if err != nil {
 		return "", 0, fmt.Errorf("mapped port %s: %w", port, err)
 	}
 
-	return host, mapped.Int(), nil
+	return host, int(mapped.Num()), nil
 }
 
 // ── MinIO bucket bootstrap ────────────────────────────────────────────────────
