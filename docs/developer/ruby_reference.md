@@ -26,14 +26,15 @@ When porting or comparing behaviors, check these source files in the sibling `wa
 
 ## Quick Sanity Check
 
-After making changes, run the following commands to verify everything compiles and responds cleanly:
+After making changes, run the Makefile targets to verify everything compiles, passes tests, and is linted cleanly:
 
 ```bash
-# Build all packages
-go build ./...
+# Build the whctl binary
+make build
 
-# Run vet tests
-go vet ./...
+# Run unit tests and static analysis
+make lint
+make test
 
 # Verify command responses
 ./whctl --help
@@ -42,4 +43,4 @@ go vet ./...
 ./whctl context --help
 ```
 
-The binary must compile cleanly. `go vet` must pass. Help text should be readable and include examples.
+The binary must compile cleanly. All unit tests and linters must pass. Help text should be readable and include examples.
