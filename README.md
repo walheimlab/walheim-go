@@ -165,6 +165,10 @@ whctl label app myapp -n production tier=backend
 whctl label app myapp -n production old-label-   # remove
 whctl label namespace production --list
 ```
+## Documentation
+
+- **User Guides**: [docs/user/usage.md](docs/user/usage.md), [docs/user/manifest_reference.md](docs/user/manifest_reference.md)
+- **Developer Docs**: [docs/developer/architecture.md](docs/developer/architecture.md), [docs/developer/git_conventions.md](docs/developer/git_conventions.md)
 
 ## License
 
