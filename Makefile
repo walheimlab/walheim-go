@@ -1,4 +1,4 @@
-.PHONY: all build test test-integration lint coverage clean
+.PHONY: all build test test-integration lint lint-fix coverage clean install-hooks
 
 BINARY_NAME=whctl
 
@@ -19,6 +19,14 @@ coverage:
 
 lint:
 	golangci-lint run
+
+lint-fix:
+	golangci-lint run --fix
+
+install-hooks:
+	chmod +x .githooks/pre-commit
+	mkdir -p .git/hooks
+	ln -sf ../../.githooks/pre-commit .git/hooks/pre-commit
 
 clean:
 	rm -f $(BINARY_NAME) coverage.out

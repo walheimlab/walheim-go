@@ -14,3 +14,15 @@ To maintain a clean and readable history, follow these rules when writing git co
    - Explaining *how* is only appropriate if the git diff itself is highly complex or non-obvious.
 5. **Be Brief**: Keep descriptions concise and overall commit messages brief.
 6. **No External Trackers**: Do not mention or reference any external issue trackers (e.g., Jira, GitHub Issue numbers) in the commit messages.
+
+---
+
+## Git Hooks
+
+This repository includes a pre-commit hook that automatically runs unit tests and linters before you commit, but only if Go source files (`*.go`, `go.mod`, `go.sum`) are changed.
+
+To install the git hook:
+
+```bash
+make install-hooks
+```

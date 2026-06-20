@@ -1,0 +1,39 @@
+#!/bin/sh
+
+# Check if any staged files match *.go, go.mod, or go.sum
+staged_files=$(git diff --cached --name-only)
+
+# Check if any of the staged files are Go files or module files
+go_changes=false
+for file in $staged_files; do
+    case "$file" in
+        *.go|go.mod|go.sum)
+            go_changes=true
+            break
+            ;;
+    esac
+done
+
+if [ "$go_changes" = true ]; then
+    echo "Go changes detected. Running lint and unit tests..."
+    
+    echo "--> Running: make lint"
+    make lint
+    if [ $? -ne 0 ]; then
+        echo "Error: 'make lint' failed. Commit aborted."
+        exit 1
+    fi
+    
+    echo "--> Running: make test"
+    make test
+    if [ $? -ne 0 ]; then
+        echo "Error: 'make test' failed. Commit aborted."
+        exit 1
+    fi
+    
+    echo "All checks passed successfully."
+else
+    echo "No Go or mod files changed. Skipping lint and test checks."
+fi
+
+exit 0
