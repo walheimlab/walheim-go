@@ -15,6 +15,7 @@ import (
 	"github.com/walheimlab/walheim-go/internal/rsync"
 	"github.com/walheimlab/walheim-go/internal/testutil"
 	gossh "golang.org/x/crypto/ssh"
+	"os/user"
 )
 
 // generateHostKey generates a temporary RSA host key.
@@ -247,22 +248,15 @@ func TestSyncer_Sync_IdentityFile(t *testing.T) {
 }
 
 func TestSyncer_Sync_ParseRemoteNoUser(t *testing.T) {
+	currUser, err := user.Current()
+	if err != nil {
+		t.Skip("skipping because user.Current() is not supported on this platform/runner")
+	}
+
 	hostKey := generateHostKey(t)
 	_, clientPub := generateKeyHelper(t)
 
-	// Since we fall back to OS user when no user is specified, let's find out what the OS user is.
-	// Actually, startMockSFTPServer expects a specific user. We can use the current OS username for the server!
-	u, err := os.UserHomeDir()
-
-	var username string
-	if err == nil {
-		// Just parse user from OS or home directory basename
-		username = filepath.Base(u)
-	} else {
-		username = "testuser"
-	}
-
-	listener, host, port := startMockSFTPServer(t, hostKey, username, clientPub)
+	listener, host, port := startMockSFTPServer(t, hostKey, currUser.Username, clientPub)
 
 	defer func() { _ = listener.Close() }()
 

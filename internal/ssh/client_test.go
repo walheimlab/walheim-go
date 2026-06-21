@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"os/user"
 	"testing"
 
 	gossh "golang.org/x/crypto/ssh"
@@ -179,9 +180,14 @@ func TestParseRemote_withUser(t *testing.T) {
 }
 
 func TestParseRemote_noUser_fallsBackToOSUser(t *testing.T) {
+	currUser, err := user.Current()
+	if err != nil {
+		t.Skip("skipping because user.Current() is not supported on this platform/runner")
+	}
+
 	u, h := parseRemote("example.com")
-	if u == "" {
-		t.Error("expected non-empty user from OS fallback")
+	if u != currUser.Username {
+		t.Errorf("user = %q, want %q", u, currUser.Username)
 	}
 
 	if h != "example.com" {
