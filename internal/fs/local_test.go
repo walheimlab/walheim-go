@@ -207,3 +207,49 @@ func TestLocalFS_ReadDir_empty(t *testing.T) {
 		t.Errorf("expected empty, got %v", entries)
 	}
 }
+
+func TestLocalFS_WriteFile_MkdirAllError(t *testing.T) {
+	lfs, dir := newLocalFS(t)
+	// Create a file
+	filePath := filepath.Join(dir, "somefile")
+	if err := lfs.WriteFile(filePath, []byte("data")); err != nil {
+		t.Fatalf("WriteFile failed: %v", err)
+	}
+
+	// Try to write to a path where "somefile" is a parent directory
+	badPath := filepath.Join(filePath, "child", "file.txt")
+
+	err := lfs.WriteFile(badPath, []byte("data"))
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+}
+
+func TestLocalFS_Exists_Error(t *testing.T) {
+	lfs := fs.NewLocalFS()
+
+	_, err := lfs.Exists("foo\x00bar")
+	if err == nil {
+		t.Fatal("expected error for path with null byte, got nil")
+	}
+}
+
+func TestLocalFS_IsDir_Error(t *testing.T) {
+	lfs := fs.NewLocalFS()
+
+	_, err := lfs.IsDir("foo\x00bar")
+	if err == nil {
+		t.Fatal("expected error for path with null byte, got nil")
+	}
+}
+
+func TestLocalFS_ReadDir_Error(t *testing.T) {
+	lfs, dir := newLocalFS(t)
+	// Try to read a non-existent directory
+	badPath := filepath.Join(dir, "nonexistent")
+
+	_, err := lfs.ReadDir(badPath)
+	if err == nil {
+		t.Fatal("expected error reading nonexistent directory, got nil")
+	}
+}

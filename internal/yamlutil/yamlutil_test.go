@@ -1,6 +1,7 @@
 package yamlutil_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -71,5 +72,22 @@ func TestMarshal_nil(t *testing.T) {
 	// nil marshals to "null\n"
 	if strings.TrimSpace(string(data)) != "null" {
 		t.Errorf("Marshal(nil) = %q, want null", string(data))
+	}
+}
+
+type errorMarshaler struct{}
+
+func (e errorMarshaler) MarshalYAML() (interface{}, error) {
+	return nil, errors.New("custom marshal error")
+}
+
+func TestMarshal_error(t *testing.T) {
+	_, err := yamlutil.Marshal(errorMarshaler{})
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+
+	if !strings.Contains(err.Error(), "custom marshal error") {
+		t.Errorf("unexpected error: %v", err)
 	}
 }

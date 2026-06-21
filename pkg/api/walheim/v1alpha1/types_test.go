@@ -227,3 +227,57 @@ func TestServiceLabels_UnmarshalYAML_listForm(t *testing.T) {
 		t.Errorf("bare = %q, want empty", labels.Values["bare"])
 	}
 }
+
+func TestServiceLabels_MarshalYAML_alwaysMap(t *testing.T) {
+	labels := ServiceLabels{Values: map[string]string{"A": "1"}}
+
+	out, err := yaml.Marshal(labels)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+
+	if !strings.Contains(string(out), "A: \"1\"") && !strings.Contains(string(out), "A: '1'") && !strings.Contains(string(out), "A: 1") {
+		t.Errorf("marshal output %q does not look like map form", string(out))
+	}
+
+	if strings.Contains(string(out), "- ") {
+		t.Errorf("marshal output %q looks like list form, want map form", string(out))
+	}
+}
+
+func TestServiceEnv_UnmarshalYAML_decodeMapError(t *testing.T) {
+	input := "KEY1: [nested, array]\n"
+
+	var env ServiceEnv
+	if err := yaml.Unmarshal([]byte(input), &env); err == nil {
+		t.Fatal("expected unmarshal error for nested array, got nil")
+	}
+}
+
+func TestServiceEnv_UnmarshalYAML_decodeSeqError(t *testing.T) {
+	input := "- [nested, array]\n"
+
+	var env ServiceEnv
+	if err := yaml.Unmarshal([]byte(input), &env); err == nil {
+		t.Fatal("expected unmarshal error for nested array inside sequence, got nil")
+	}
+}
+
+func TestServiceLabels_UnmarshalYAML_decodeMapError(t *testing.T) {
+	input := "KEY1: [nested, array]\n"
+
+	var labels ServiceLabels
+	if err := yaml.Unmarshal([]byte(input), &labels); err == nil {
+		t.Fatal("expected unmarshal error for nested array, got nil")
+	}
+}
+
+func TestServiceLabels_UnmarshalYAML_decodeSeqError(t *testing.T) {
+	input := "- [nested, array]\n"
+
+	var labels ServiceLabels
+	if err := yaml.Unmarshal([]byte(input), &labels); err == nil {
+		t.Fatal("expected unmarshal error for nested array inside sequence, got nil")
+	}
+}
+
